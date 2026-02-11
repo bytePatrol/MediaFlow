@@ -72,6 +72,10 @@ async def run_benchmark(server_id: int):
             "progress": 0,
         })
 
+        remote_dir = None
+        tmp_dir = None
+        ssh = None
+
         try:
             from app.utils.ssh import SSHClient
             ssh = SSHClient(
@@ -111,18 +115,30 @@ async def run_benchmark(server_id: int):
             with open(local_file, "wb") as f:
                 f.write(os.urandom(TEST_FILE_SIZE))
 
-            # Try candidate directories — /tmp often has no space on NAS devices
+            # Find writable directory on Plex server
             remote_dir = None
-            for candidate in ["/share/Public/.mediaflow_benchmark", "/tmp/mediaflow_benchmark"]:
+            if plex_server.benchmark_path:
+                # Use user-configured path
+                candidate = f"{plex_server.benchmark_path.rstrip('/')}/.mediaflow_benchmark"
                 result = await ssh.run_command(
                     f"mkdir -p {candidate} && dd if=/dev/zero of={candidate}/.probe bs=1 count=1 2>/dev/null && rm -f {candidate}/.probe && echo OK"
                 )
                 if "OK" in (result.get("stdout") or ""):
                     remote_dir = candidate
-                    break
+                else:
+                    raise IOError(f"Configured benchmark path is not writable: {plex_server.benchmark_path}")
+            else:
+                # Probe candidate directories (skip /tmp — often a small RAMDISK on NAS)
+                for candidate in ["/share/Public/.mediaflow_benchmark"]:
+                    result = await ssh.run_command(
+                        f"mkdir -p {candidate} && dd if=/dev/zero of={candidate}/.probe bs=1 count=1 2>/dev/null && rm -f {candidate}/.probe && echo OK"
+                    )
+                    if "OK" in (result.get("stdout") or ""):
+                        remote_dir = candidate
+                        break
 
             if not remote_dir:
-                raise IOError("No writable directory found on Plex server")
+                raise IOError("No writable directory found on Plex server. Configure a Benchmark Path in Settings → SSH.")
 
             remote_file = f"{remote_dir}/benchmark_test.bin"
 
@@ -163,16 +179,7 @@ async def run_benchmark(server_id: int):
             download_mbps = (TEST_FILE_SIZE * 8) / (download_elapsed * 1_000_000)
             benchmark.download_mbps = round(download_mbps, 2)
 
-            # Step 5: Cleanup
-            await ssh.run_command(f"rm -rf {remote_dir}")
-            try:
-                os.remove(local_file)
-                os.remove(download_local)
-                os.rmdir(tmp_dir)
-            except OSError:
-                pass
-
-            # Step 6: Compute performance score
+            # Step 5: Compute performance score
             # Higher throughput = better, lower latency = better
             throughput_avg = (upload_mbps + download_mbps) / 2
             # Scale: 500 Mbps SFTP = 100 points (realistic for Gigabit LAN)
@@ -211,6 +218,20 @@ async def run_benchmark(server_id: int):
                 "benchmark_id": benchmark.id,
                 "error": str(e)[:500],
             })
+
+        finally:
+            # Guaranteed cleanup — remote and local
+            if remote_dir and ssh:
+                try:
+                    await ssh.run_command(f"rm -rf {remote_dir}")
+                except Exception:
+                    logger.warning(f"Failed to clean up remote dir {remote_dir}")
+            if tmp_dir:
+                try:
+                    import shutil
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                except Exception:
+                    pass
 
 
 async def get_benchmarks(session: AsyncSession, server_id: int) -> List[ServerBenchmark]:

@@ -24,6 +24,7 @@ class PlexServerResponse(BaseModel):
     ssh_username: Optional[str] = None
     ssh_key_path: Optional[str] = None
     ssh_password: Optional[str] = None
+    benchmark_path: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -65,6 +66,7 @@ class PlexServerSSHUpdate(BaseModel):
     ssh_username: Optional[str] = None
     ssh_key_path: Optional[str] = None
     ssh_password: Optional[str] = None
+    benchmark_path: Optional[str] = None
 
 
 class PlexOAuthServersResponse(BaseModel):

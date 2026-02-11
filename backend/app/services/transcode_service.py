@@ -259,19 +259,37 @@ class TranscodeService:
         await self.session.refresh(job)
         return job
 
-    async def clear_finished_jobs(self) -> int:
-        """Delete all completed, failed, and cancelled jobs."""
-        result = await self.session.execute(
-            select(TranscodeJob).where(
-                TranscodeJob.status.in_(["completed", "failed", "cancelled"])
+    async def clear_finished_jobs(self, include_active: bool = False) -> int:
+        """Delete jobs from the queue.
+
+        When include_active is True, cancels running jobs first then deletes everything.
+        Otherwise only deletes completed, failed, and cancelled jobs.
+        """
+        if include_active:
+            result = await self.session.execute(select(TranscodeJob))
+        else:
+            result = await self.session.execute(
+                select(TranscodeJob).where(
+                    TranscodeJob.status.in_(["completed", "failed", "cancelled"])
+                )
             )
-        )
         jobs = result.scalars().all()
         count = len(jobs)
         for job in jobs:
+            if job.status in ("queued", "transcoding", "transferring", "verifying"):
+                job.status = "cancelled"
             await self.session.delete(job)
         await self.session.commit()
         return count
+
+    async def get_active_job_ids(self) -> list[int]:
+        """Return IDs of all currently active jobs."""
+        result = await self.session.execute(
+            select(TranscodeJob.id).where(
+                TranscodeJob.status.in_(["queued", "transcoding", "transferring", "verifying"])
+            )
+        )
+        return list(result.scalars().all())
 
     async def get_queue_stats(self) -> QueueStatsResponse:
         statuses = ["queued", "transcoding", "completed", "failed"]

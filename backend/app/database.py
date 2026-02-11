@@ -56,6 +56,7 @@ async def _run_migrations(conn):
         ("worker_servers", "last_benchmark_at", "DATETIME"),
         ("worker_servers", "consecutive_failures", "INTEGER DEFAULT 0"),
         ("worker_servers", "provision_log", "TEXT"),
+        ("plex_servers", "benchmark_path", "VARCHAR(500)"),
     ]
     for table, column, col_type in migrations:
         try:

@@ -23,5 +23,6 @@ class PlexServer(Base):
     ssh_username = Column(String(100), nullable=True)
     ssh_key_path = Column(String(500), nullable=True)
     ssh_password = Column(String(500), nullable=True)
+    benchmark_path = Column(String(500), nullable=True)
 
     libraries = relationship("PlexLibrary", back_populates="server", cascade="all, delete-orphan")

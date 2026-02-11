@@ -1,10 +1,19 @@
+import httpx
+import logging
+
 from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from typing import Optional, List
 
 from app.database import get_session
+from app.models.media_item import MediaItem
 from app.services.library_service import LibraryService
 from app.schemas.media import MediaItemResponse, LibraryStatsResponse, LibrarySectionResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -76,3 +85,42 @@ async def export_library(
 ):
     service = LibraryService(session)
     return await service.export_library(format=format, library_id=library_id)
+
+
+@router.get("/thumb/{item_id}")
+async def get_thumbnail(item_id: int, session: AsyncSession = Depends(get_session)):
+    """Proxy Plex thumbnail with authentication."""
+    result = await session.execute(
+        select(MediaItem)
+        .options(joinedload(MediaItem.library))
+        .where(MediaItem.id == item_id)
+    )
+    item = result.unique().scalar_one_or_none()
+    if not item or not item.thumb_url:
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+
+    # Get the Plex token via library → server
+    from app.models.plex_server import PlexServer
+    server_result = await session.execute(
+        select(PlexServer).where(PlexServer.id == item.library.plex_server_id)
+    )
+    server = server_result.scalar_one_or_none()
+    if not server:
+        raise HTTPException(status_code=404, detail="Plex server not found")
+
+    separator = "&" if "?" in item.thumb_url else "?"
+    plex_url = f"{item.thumb_url}{separator}X-Plex-Token={server.token}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(plex_url)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail="Failed to fetch thumbnail from Plex")
+            return Response(
+                content=resp.content,
+                media_type=resp.headers.get("content-type", "image/jpeg"),
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+    except httpx.RequestError as e:
+        logger.warning(f"Thumbnail fetch failed for item {item_id}: {e}")
+        raise HTTPException(status_code=502, detail="Failed to fetch thumbnail")

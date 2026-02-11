@@ -404,10 +404,10 @@ class PlexSSHPanel {
         )
 
         let hostingView = NSHostingView(rootView: content)
-        hostingView.frame = NSRect(x: 0, y: 0, width: 440, height: 400)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 440, height: 460)
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 460),
             styleMask: [.titled, .closable, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -446,13 +446,14 @@ struct PlexSSHPanelContent: View {
     @State private var sshUsername: String = ""
     @State private var sshKeyPath: String = ""
     @State private var sshPassword: String = ""
+    @State private var benchmarkPath: String = ""
     @State private var isSaving: Bool = false
     @State private var isTesting: Bool = false
     @State private var statusMessage: String = ""
     @State private var statusIsError: Bool = false
     @FocusState private var focusedField: Field?
 
-    private enum Field: Hashable { case hostname, port, username, keyPath, password }
+    private enum Field: Hashable { case hostname, port, username, keyPath, password, benchmarkPath }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -517,6 +518,16 @@ struct PlexSSHPanelContent: View {
                     }
                 }
 
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Benchmark Path").font(.mfCaption).foregroundColor(.mfTextMuted)
+                    TextField("/share/ZFS18_DATA/Media/Plex", text: $benchmarkPath)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .benchmarkPath)
+                    Text("Directory on Plex server for benchmark test files. Leave blank to auto-detect.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.mfTextMuted)
+                }
+
                 if !statusMessage.isEmpty {
                     Text(statusMessage)
                         .font(.mfCaption)
@@ -566,7 +577,7 @@ struct PlexSSHPanelContent: View {
             .padding(20)
             .overlay(Rectangle().frame(height: 1).foregroundColor(.mfGlassBorder), alignment: .top)
         }
-        .frame(width: 440, height: 400)
+        .frame(width: 440, height: 460)
         .background(Color.mfBackground)
         .preferredColorScheme(.dark)
         .onAppear {
@@ -575,6 +586,7 @@ struct PlexSSHPanelContent: View {
             sshUsername = server.sshUsername ?? ""
             sshKeyPath = server.sshKeyPath ?? ""
             sshPassword = server.sshPassword ?? ""
+            benchmarkPath = server.benchmarkPath ?? ""
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 focusedField = .hostname
             }
@@ -591,7 +603,8 @@ struct PlexSSHPanelContent: View {
                 sshPort: Int(sshPort) ?? 22,
                 sshUsername: sshUsername.isEmpty ? nil : sshUsername,
                 sshKeyPath: sshKeyPath.isEmpty ? nil : sshKeyPath,
-                sshPassword: sshPassword.isEmpty ? nil : sshPassword
+                sshPassword: sshPassword.isEmpty ? nil : sshPassword,
+                benchmarkPath: benchmarkPath.isEmpty ? nil : benchmarkPath
             )
             let updated = try await backend.updatePlexServerSSH(id: server.id, request: request)
             await MainActor.run {

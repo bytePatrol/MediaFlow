@@ -67,4 +67,5 @@ struct PlexServerInfo: Identifiable, Codable {
     var sshUsername: String?
     var sshKeyPath: String?
     var sshPassword: String?
+    var benchmarkPath: String?
 }

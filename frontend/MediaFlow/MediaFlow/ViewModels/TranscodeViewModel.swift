@@ -112,7 +112,7 @@ class TranscodeViewModel: ObservableObject {
 
     func clearFinished() async {
         let client = APIClient(baseURL: service.client.baseURL)
-        try? await client.delete("/api/transcode/jobs/finished")
+        try? await client.delete("/api/transcode/jobs/finished?include_active=true")
         jobLogMessages.removeAll()
         jobTransferProgress.removeAll()
         await loadJobs()

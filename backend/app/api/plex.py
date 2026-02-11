@@ -109,6 +109,7 @@ async def update_server_ssh(
     server.ssh_username = request.ssh_username
     server.ssh_key_path = request.ssh_key_path
     server.ssh_password = request.ssh_password
+    server.benchmark_path = request.benchmark_path
     await session.commit()
     await session.refresh(server)
 

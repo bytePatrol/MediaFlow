@@ -210,9 +210,20 @@ struct MediaGridView: View {
                     MediaGridCard(item: item, isSelected: viewModel.selectedItems.contains(item.id)) {
                         viewModel.toggleSelection(item.id)
                     }
+                    .onAppear {
+                        if item.id == viewModel.items.last?.id,
+                           viewModel.currentPage < viewModel.totalPages {
+                            Task { await viewModel.loadNextPage() }
+                        }
+                    }
                 }
             }
             .padding(16)
+
+            if viewModel.isLoading {
+                ProgressView()
+                    .padding()
+            }
         }
     }
 }
@@ -226,14 +237,24 @@ struct MediaGridCard: View {
         VStack(alignment: .leading, spacing: 8) {
             // Thumbnail
             ZStack(alignment: .topTrailing) {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.mfSurfaceLight)
-                    .aspectRatio(2/3, contentMode: .fit)
-                    .overlay(
-                        Image(systemName: "film")
-                            .font(.system(size: 24))
-                            .foregroundColor(.mfTextMuted)
-                    )
+                AsyncImage(url: URL(string: "http://localhost:9876/api/library/thumb/\(item.id)")) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(2/3, contentMode: .fill)
+                            .clipped()
+                    case .failure:
+                        thumbnailPlaceholder
+                    case .empty:
+                        thumbnailPlaceholder
+                            .overlay(ProgressView().scaleEffect(0.5))
+                    @unknown default:
+                        thumbnailPlaceholder
+                    }
+                }
+                .aspectRatio(2/3, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
@@ -262,5 +283,16 @@ struct MediaGridCard: View {
                 .stroke(isSelected ? Color.mfPrimary.opacity(0.5) : Color.mfGlassBorder, lineWidth: 1)
         )
         .onTapGesture { onTap() }
+    }
+
+    private var thumbnailPlaceholder: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.mfSurfaceLight)
+            .aspectRatio(2/3, contentMode: .fit)
+            .overlay(
+                Image(systemName: "film")
+                    .font(.system(size: 24))
+                    .foregroundColor(.mfTextMuted)
+            )
     }
 }

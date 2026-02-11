@@ -68,9 +68,20 @@ async def update_transcode_job(
 
 
 @router.delete("/jobs/finished")
-async def clear_finished_jobs(session: AsyncSession = Depends(get_session)):
+async def clear_finished_jobs(
+    include_active: bool = False,
+    session: AsyncSession = Depends(get_session),
+):
     service = TranscodeService(session)
-    count = await service.clear_finished_jobs()
+    if include_active:
+        # Cancel any running worker processes first
+        from app.workers.scheduler import get_transcode_worker
+        worker = get_transcode_worker()
+        if worker:
+            active_jobs = await service.get_active_job_ids()
+            for job_id in active_jobs:
+                await worker.cancel_job(job_id)
+    count = await service.clear_finished_jobs(include_active=include_active)
     return {"status": "cleared", "deleted": count}
 
 
