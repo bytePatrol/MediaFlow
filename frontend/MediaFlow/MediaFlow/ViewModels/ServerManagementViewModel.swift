@@ -15,6 +15,7 @@ class ServerManagementViewModel: ObservableObject {
     @Published var provisionSteps: [Int: ProvisionProgress] = [:]
     @Published var provisionCompleted: Set<Int> = []
     @Published var provisionError: [Int: String] = [:]
+    @Published var cloudDeployProgress: [Int: CloudDeployProgress] = [:]
 
     private let service: BackendService
     private var wsClient: WebSocketClient?
@@ -83,6 +84,18 @@ class ServerManagementViewModel: ObservableObject {
                 try? await Task.sleep(for: .seconds(8))
                 provisionError.removeValue(forKey: server.id)
             }
+        }
+    }
+
+    func teardownCloudServer(_ server: WorkerServer) async {
+        do {
+            try await service.teardownCloudGPU(serverId: server.id)
+            if let idx = servers.firstIndex(where: { $0.id == server.id }) {
+                servers[idx].cloudStatus = "destroying"
+                servers[idx].status = "offline"
+            }
+        } catch {
+            print("Failed to teardown cloud server: \(error)")
         }
     }
 
@@ -245,6 +258,66 @@ class ServerManagementViewModel: ObservableObject {
             self.provisionError[serverId] = errorMsg
             Task {
                 try? await Task.sleep(for: .seconds(8))
+                self.provisionError.removeValue(forKey: serverId)
+            }
+        }
+
+        // MARK: - Cloud GPU subscriptions
+
+        client.subscribe(to: "cloud.deploy_progress") { [weak self] message in
+            guard let self = self else { return }
+            let serverId = message.data["server_id"]?.intValue ?? 0
+            let progress = CloudDeployProgress(
+                serverId: serverId,
+                step: message.data["step"]?.stringValue ?? "",
+                progress: message.data["progress"]?.intValue ?? 0,
+                message: message.data["message"]?.stringValue ?? ""
+            )
+            // Cloud deploy progress uses server_id=0 initially, then real ID
+            if serverId > 0 {
+                self.cloudDeployProgress[serverId] = progress
+            }
+        }
+
+        client.subscribe(to: "cloud.deploy_completed") { [weak self] message in
+            guard let self = self,
+                  let serverId = message.data["server_id"]?.intValue else { return }
+            self.cloudDeployProgress.removeValue(forKey: serverId)
+            Task { await self.loadServers() }
+        }
+
+        client.subscribe(to: "cloud.deploy_failed") { [weak self] message in
+            guard let self = self,
+                  let serverId = message.data["server_id"]?.intValue else { return }
+            self.cloudDeployProgress.removeValue(forKey: serverId)
+            let errorMsg = message.data["error"]?.stringValue ?? "Cloud deploy failed"
+            self.provisionError[serverId] = errorMsg
+            Task {
+                await self.loadServers()
+                try? await Task.sleep(for: .seconds(8))
+                self.provisionError.removeValue(forKey: serverId)
+            }
+        }
+
+        client.subscribe(to: "cloud.teardown_completed") { [weak self] message in
+            guard let self = self,
+                  let serverId = message.data["server_id"]?.intValue else { return }
+            if let idx = self.servers.firstIndex(where: { $0.id == serverId }) {
+                self.servers[idx].cloudStatus = "destroyed"
+                self.servers[idx].status = "offline"
+                self.servers[idx].isEnabled = false
+            }
+        }
+
+        client.subscribe(to: "cloud.spend_cap_reached") { [weak self] message in
+            guard let self = self,
+                  let serverId = message.data["server_id"]?.intValue else { return }
+            let capType = message.data["cap_type"]?.stringValue ?? "unknown"
+            let cost = message.data["current_cost"]?.doubleValue ?? 0
+            let cap = message.data["cap"]?.doubleValue ?? 0
+            self.provisionError[serverId] = "Spend cap reached (\(capType): $\(String(format: "%.2f", cost))/$\(String(format: "%.0f", cap)))"
+            Task {
+                try? await Task.sleep(for: .seconds(10))
                 self.provisionError.removeValue(forKey: serverId)
             }
         }

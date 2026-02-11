@@ -128,6 +128,31 @@ class BackendService {
         return try await client.get("/api/servers/\(serverId)/estimate", queryItems: items)
     }
 
+    // MARK: - Cloud GPU
+    func deployCloudGPU(request: CloudDeployRequest) async throws -> CloudDeployResponse {
+        return try await client.post("/api/cloud/deploy", body: request)
+    }
+
+    func teardownCloudGPU(serverId: Int) async throws {
+        try await client.delete("/api/cloud/\(serverId)")
+    }
+
+    func getCloudPlans() async throws -> [CloudPlanInfo] {
+        return try await client.get("/api/cloud/plans")
+    }
+
+    func getCloudCostSummary() async throws -> CloudCostSummary {
+        return try await client.get("/api/cloud/cost-summary")
+    }
+
+    func getCloudSettings() async throws -> CloudSettingsResponse {
+        return try await client.get("/api/cloud/settings")
+    }
+
+    func updateCloudSettings(request: CloudSettingsUpdate) async throws -> CloudSettingsResponse {
+        return try await client.put("/api/cloud/settings", body: request)
+    }
+
     // MARK: - Analytics
     func getAnalyticsOverview() async throws -> AnalyticsOverview {
         return try await client.get("/api/analytics/overview")

@@ -62,6 +62,85 @@ class SSHClient:
         except Exception as e:
             return {"stdout": "", "stderr": str(e), "exit_status": 1}
 
+    async def run_command_streaming(self, command: str, line_callback=None,
+                                      timeout: int = 7200) -> Dict[str, Any]:
+        """Run a command via SSH and stream output lines to a callback.
+
+        Used for long-running commands like ffmpeg where we want real-time progress.
+        The callback receives each line of stderr as it arrives.
+        """
+        try:
+            import asyncssh
+            kwargs = self._connect_kwargs()
+            kwargs["login_timeout"] = 30  # Longer timeout for cloud connections
+
+            all_stderr = []
+            all_stdout = []
+
+            async with asyncssh.connect(**kwargs) as conn:
+                async with conn.create_process(command) as process:
+                    stderr_buffer = b""
+                    try:
+                        while True:
+                            chunk = await asyncio.wait_for(
+                                process.stderr.read(4096),
+                                timeout=timeout,
+                            )
+                            if not chunk:
+                                break
+                            stderr_buffer += chunk.encode() if isinstance(chunk, str) else chunk
+
+                            # Split on \r or \n for ffmpeg progress lines
+                            while b"\r" in stderr_buffer or b"\n" in stderr_buffer:
+                                r_pos = stderr_buffer.find(b"\r")
+                                n_pos = stderr_buffer.find(b"\n")
+                                if r_pos == -1:
+                                    pos = n_pos
+                                elif n_pos == -1:
+                                    pos = r_pos
+                                else:
+                                    pos = min(r_pos, n_pos)
+
+                                line_bytes = stderr_buffer[:pos]
+                                if pos + 1 < len(stderr_buffer) and stderr_buffer[pos:pos+2] == b"\r\n":
+                                    stderr_buffer = stderr_buffer[pos+2:]
+                                else:
+                                    stderr_buffer = stderr_buffer[pos+1:]
+
+                                line_text = line_bytes.decode("utf-8", errors="replace").strip()
+                                if line_text:
+                                    all_stderr.append(line_text)
+                                    if line_callback:
+                                        await line_callback(line_text)
+                    except asyncio.TimeoutError:
+                        process.terminate()
+                        return {
+                            "stdout": "\n".join(all_stdout),
+                            "stderr": "\n".join(all_stderr),
+                            "exit_status": -1,
+                        }
+
+                    # Process remaining buffer
+                    if stderr_buffer:
+                        line_text = stderr_buffer.decode("utf-8", errors="replace").strip()
+                        if line_text:
+                            all_stderr.append(line_text)
+                            if line_callback:
+                                await line_callback(line_text)
+
+                    await process.wait()
+                    exit_status = process.exit_status
+
+                    return {
+                        "stdout": "\n".join(all_stdout),
+                        "stderr": "\n".join(all_stderr),
+                        "exit_status": exit_status,
+                    }
+        except ImportError:
+            return {"stdout": "", "stderr": "asyncssh not installed", "exit_status": 1}
+        except Exception as e:
+            return {"stdout": "", "stderr": str(e), "exit_status": 1}
+
     async def probe_capabilities(self) -> Dict[str, Any]:
         capabilities = {}
         cpu_result = await self.run_command("cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d: -f2")

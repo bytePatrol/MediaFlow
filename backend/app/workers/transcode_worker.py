@@ -226,7 +226,15 @@ class TranscodeWorker:
         # Upload source to remote
         remote_source = f"{working_dir}/{os.path.basename(local_source)}"
         logger.info(f"Job {job.id}: uploading {local_source} to {worker.hostname}:{remote_source}")
-        uploaded = await ssh.upload_file(local_source, remote_source)
+
+        # Set status to transferring and add progress callback
+        job.status = "transferring"
+        await session.commit()
+        await manager.broadcast("job.status_changed", {"job_id": job.id, "status": "transferring"})
+
+        upload_size = os.path.getsize(local_source) if os.path.exists(local_source) else 0
+        ul_progress = self._make_transfer_progress_cb(job.id, "upload", upload_size)
+        uploaded = await ssh.upload_file(local_source, remote_source, progress_callback=ul_progress)
         if not uploaded:
             job.status = "failed"
             job.ffmpeg_log = f"Failed to upload source to {worker.hostname}"
@@ -250,9 +258,39 @@ class TranscodeWorker:
         builder = FFmpegCommandBuilder(config, remote_source)
         remote_ffmpeg_cmd = builder.build()
 
-        # Run ffmpeg on remote via SSH
+        # Run ffmpeg on remote via SSH (with streaming progress for cloud workers)
+        job.status = "transcoding"
+        await session.commit()
+        await manager.broadcast("job.status_changed", {"job_id": job.id, "status": "transcoding"})
+
         logger.info(f"Job {job.id}: running ffmpeg on {worker.hostname}")
-        result = await ssh.run_command(remote_ffmpeg_cmd)
+        total_duration = (media.duration_ms / 1000) if media and media.duration_ms else 0
+
+        if worker.cloud_provider:
+            # Use streaming SSH for real-time progress on cloud workers
+            async def _ffmpeg_line_cb(line: str):
+                match = PROGRESS_PATTERN.search(line)
+                if match and total_duration > 0:
+                    frame = int(match.group(1))
+                    fps = float(match.group(2))
+                    time_str = match.group(4)
+                    h, m, s = time_str.split(":")
+                    current_seconds = int(h) * 3600 + int(m) * 60 + float(s)
+                    progress = min(100.0, (current_seconds / total_duration) * 100)
+                    eta = int((total_duration - current_seconds) / max(fps / 24, 0.01)) if fps > 0 else 0
+                    job.progress_percent = round(progress, 1)
+                    job.current_fps = fps
+                    job.eta_seconds = eta
+                    job.checkpoint_frame = frame
+                    await session.commit()
+                    await manager.broadcast("job.progress", {
+                        "job_id": job.id, "progress": round(progress, 1),
+                        "fps": fps, "eta_seconds": eta, "frame": frame,
+                    })
+
+            result = await ssh.run_command_streaming(remote_ffmpeg_cmd, line_callback=_ffmpeg_line_cb)
+        else:
+            result = await ssh.run_command(remote_ffmpeg_cmd)
 
         if result["exit_status"] != 0:
             log_text = result.get("stderr", "") or result.get("stdout", "")
@@ -274,8 +312,23 @@ class TranscodeWorker:
             container = config.get("container", "mkv")
             local_output = f"{base}.mediaflow.{container}"
 
+        # Download with progress
+        job.status = "transferring"
+        await session.commit()
+        await manager.broadcast("job.status_changed", {"job_id": job.id, "status": "transferring"})
+
         logger.info(f"Job {job.id}: downloading output from {worker.hostname}:{remote_output}")
-        downloaded = await ssh.download_file(remote_output, local_output)
+        # Get remote file size for progress tracking
+        size_cmd = f"stat -c %s {shlex.quote(remote_output)} 2>/dev/null || stat -f %z {shlex.quote(remote_output)}"
+        size_result = await ssh.run_command(size_cmd)
+        dl_total = 0
+        if size_result["exit_status"] == 0:
+            try:
+                dl_total = int(size_result["stdout"].strip())
+            except ValueError:
+                pass
+        dl_progress = self._make_transfer_progress_cb(job.id, "download", dl_total)
+        downloaded = await ssh.download_file(remote_output, local_output, progress_callback=dl_progress)
         if not downloaded:
             job.status = "failed"
             job.ffmpeg_log = f"Failed to download output from {worker.hostname}"
@@ -292,6 +345,11 @@ class TranscodeWorker:
         job.output_path = local_output
 
         log_lines = (result.get("stderr", "") or "").split("\n")
+
+        # Record cloud cost for this job
+        if worker.cloud_provider:
+            await self._record_cloud_job_cost(worker, job, start_time, session)
+
         await self._handle_success(job, media, log_lines, start_time, session)
 
     async def _execute_ssh_pull(self, job: TranscodeJob,
@@ -530,6 +588,33 @@ class TranscodeWorker:
             "output_size": job.output_size,
             "duration": round(duration, 1),
         })
+
+    # --- Cloud cost helper ---
+
+    async def _record_cloud_job_cost(self, worker: WorkerServer, job, start_time: float,
+                                     session) -> None:
+        """Record a CloudCostRecord for a job that ran on a cloud worker."""
+        from app.models.cloud_cost import CloudCostRecord
+
+        duration = time.time() - start_time
+        hourly_rate = worker.hourly_cost or 0
+        cost = round((duration / 3600) * hourly_rate, 4)
+
+        record = CloudCostRecord(
+            worker_server_id=worker.id,
+            job_id=job.id,
+            cloud_provider=worker.cloud_provider,
+            cloud_instance_id=worker.cloud_instance_id,
+            cloud_plan=worker.cloud_plan,
+            hourly_rate=hourly_rate,
+            start_time=datetime.utcfromtimestamp(start_time),
+            end_time=datetime.utcnow(),
+            duration_seconds=round(duration, 1),
+            cost_usd=cost,
+            record_type="job",
+        )
+        session.add(record)
+        await session.commit()
 
     # --- Transfer progress helper ---
 

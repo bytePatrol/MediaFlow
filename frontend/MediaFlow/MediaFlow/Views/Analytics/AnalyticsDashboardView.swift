@@ -44,6 +44,64 @@ struct AnalyticsDashboardView: View {
                     )
                 }
 
+                // Cloud Costs Card
+                if let costSummary = viewModel.cloudCosts, costSummary.currentMonthTotal > 0 || costSummary.activeInstanceRunningCost > 0 {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "cloud.bolt.fill")
+                                .foregroundColor(.mfPrimary)
+                            Text("Cloud GPU Costs")
+                                .font(.mfSubheadline)
+                            Spacer()
+                            Text("This Month")
+                                .font(.mfCaption)
+                                .foregroundColor(.mfTextMuted)
+                        }
+                        HStack(spacing: 24) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("TOTAL SPEND")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(.mfTextMuted)
+                                    .tracking(0.5)
+                                Text("$\(String(format: "%.2f", costSummary.currentMonthTotal))")
+                                    .font(.system(size: 24, weight: .bold))
+                                    .foregroundColor(.mfPrimary)
+                            }
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("ACTIVE RUNNING")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(.mfTextMuted)
+                                    .tracking(0.5)
+                                Text("$\(String(format: "%.2f", costSummary.activeInstanceRunningCost))")
+                                    .font(.system(size: 24, weight: .bold))
+                                    .foregroundColor(.mfWarning)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text("CAP")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(.mfTextMuted)
+                                    .tracking(0.5)
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .fill(Color.mfSurfaceLight)
+                                        RoundedRectangle(cornerRadius: 3)
+                                            .fill(costSummary.currentMonthTotal / costSummary.monthlyCap > 0.8 ? Color.mfError : Color.mfPrimary)
+                                            .frame(width: geo.size.width * min(1, CGFloat(costSummary.currentMonthTotal / max(costSummary.monthlyCap, 1))))
+                                    }
+                                }
+                                .frame(width: 120, height: 8)
+                                Text("$\(String(format: "%.2f", costSummary.currentMonthTotal)) / $\(String(format: "%.0f", costSummary.monthlyCap))")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.mfTextSecondary)
+                            }
+                        }
+                    }
+                    .padding(20)
+                    .cardStyle()
+                }
+
                 // Charts Row
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 16) {

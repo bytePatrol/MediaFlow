@@ -31,6 +31,15 @@ class WorkerServer(Base):
     last_benchmark_at = Column(DateTime, nullable=True)
     consecutive_failures = Column(Integer, default=0)
     provision_log = Column(String, nullable=True)  # JSON result of last provisioning
+    # Cloud GPU fields
+    cloud_provider = Column(String(20), nullable=True)       # "vultr" or None for manual servers
+    cloud_instance_id = Column(String(100), nullable=True)   # Vultr instance UUID
+    cloud_plan = Column(String(50), nullable=True)           # e.g. "vcg-a16-6c-64g-16vram"
+    cloud_region = Column(String(20), nullable=True)         # e.g. "ewr", "lax"
+    cloud_created_at = Column(DateTime, nullable=True)       # When instance was created (for billing)
+    cloud_auto_teardown = Column(Boolean, default=True)      # Whether to auto-destroy on idle
+    cloud_idle_minutes = Column(Integer, default=30)         # Minutes of idle before teardown
+    cloud_status = Column(String(20), nullable=True)         # "creating", "bootstrapping", "active", "destroying"
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

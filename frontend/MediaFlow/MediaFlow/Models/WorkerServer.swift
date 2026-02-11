@@ -33,6 +33,17 @@ struct WorkerServer: Identifiable, Codable {
     var activeJobs: Int = 0
     var performanceScore: Double?
     var lastBenchmarkAt: String?
+    // Cloud GPU fields
+    var cloudProvider: String?
+    var cloudInstanceId: String?
+    var cloudPlan: String?
+    var cloudRegion: String?
+    var cloudCreatedAt: String?
+    var cloudAutoTeardown: Bool = true
+    var cloudIdleMinutes: Int = 30
+    var cloudStatus: String?    // "creating", "bootstrapping", "active", "destroying", "destroyed"
+
+    var isCloud: Bool { cloudProvider != nil }
 }
 
 struct ServerStatus: Codable {
@@ -106,4 +117,79 @@ struct ProvisionProgress {
     let progress: Int
     let step: String
     let message: String
+}
+
+struct CloudDeployProgress {
+    let serverId: Int
+    let step: String
+    let progress: Int
+    let message: String
+}
+
+// MARK: - Cloud GPU Models
+
+struct CloudPlanInfo: Identifiable, Codable {
+    var id: String { planId }
+    let planId: String
+    let gpuModel: String
+    let vcpus: Int
+    let ramMb: Int
+    let gpuVramGb: Int
+    let monthlyCost: Double
+    let hourlyCost: Double
+    let regions: [String]
+}
+
+struct CloudDeployRequest: Codable {
+    let plan: String
+    let region: String
+    let idleMinutes: Int
+    let autoTeardown: Bool
+}
+
+struct CloudDeployResponse: Codable {
+    let status: String
+    let serverId: Int
+    let message: String
+}
+
+struct CloudCostRecordResponse: Codable, Identifiable {
+    let id: Int
+    var workerServerId: Int?
+    var jobId: Int?
+    let cloudProvider: String
+    let cloudInstanceId: String
+    let cloudPlan: String
+    let hourlyRate: Double
+    let startTime: String
+    var endTime: String?
+    var durationSeconds: Double?
+    var costUsd: Double?
+    let recordType: String
+}
+
+struct CloudCostSummary: Codable {
+    let currentMonthTotal: Double
+    let activeInstanceRunningCost: Double
+    let monthlyCap: Double
+    let instanceCap: Double
+    let records: [CloudCostRecordResponse]
+}
+
+struct CloudSettingsResponse: Codable {
+    let apiKeyConfigured: Bool
+    let defaultPlan: String
+    let defaultRegion: String
+    let monthlySpendCap: Double
+    let instanceSpendCap: Double
+    let defaultIdleMinutes: Int
+}
+
+struct CloudSettingsUpdate: Codable {
+    var vultrApiKey: String?
+    var defaultPlan: String?
+    var defaultRegion: String?
+    var monthlySpendCap: Double?
+    var instanceSpendCap: Double?
+    var defaultIdleMinutes: Int?
 }

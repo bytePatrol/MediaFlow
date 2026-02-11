@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List, Any
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -44,6 +44,15 @@ class WorkerServerResponse(BaseModel):
     active_jobs: int = 0
     performance_score: Optional[float] = None
     last_benchmark_at: Optional[datetime] = None
+    # Cloud GPU fields
+    cloud_provider: Optional[str] = None
+    cloud_instance_id: Optional[str] = None
+    cloud_plan: Optional[str] = None
+    cloud_region: Optional[str] = None
+    cloud_created_at: Optional[datetime] = None
+    cloud_auto_teardown: bool = True
+    cloud_idle_minutes: int = 30
+    cloud_status: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

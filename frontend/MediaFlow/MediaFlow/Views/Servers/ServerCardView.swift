@@ -11,13 +11,25 @@ struct ServerCardView: View {
     var provisionStep: ProvisionProgress? = nil
     var provisionCompleted: Bool = false
     var provisionError: String? = nil
+    var cloudDeployProgress: CloudDeployProgress? = nil
     var onEdit: (() -> Void)? = nil
     var onBenchmark: (() -> Void)? = nil
     var onProvision: (() -> Void)? = nil
+    var onTeardown: (() -> Void)? = nil
     @State private var showingLogs = false
+    @State private var showTeardownConfirm = false
 
     var statusColor: Color {
         if !server.isEnabled { return .mfTextMuted }
+        if server.isCloud {
+            switch server.cloudStatus {
+            case "creating", "bootstrapping": return .mfPrimary
+            case "active": return .mfSuccess
+            case "destroying": return .mfWarning
+            case "destroyed", "failed": return .mfError
+            default: break
+            }
+        }
         switch server.status {
         case "online": return .mfSuccess
         case "offline": return .mfError
@@ -25,6 +37,21 @@ struct ServerCardView: View {
         case "setup_failed": return .mfError
         default: return .mfWarning
         }
+    }
+
+    var cloudRunningTime: String? {
+        guard server.isCloud, let created = server.cloudCreatedAt else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = formatter.date(from: created) ?? ISO8601DateFormatter().date(from: created) else { return nil }
+        let elapsed = Date().timeIntervalSince(date)
+        let hours = Int(elapsed) / 3600
+        let minutes = (Int(elapsed) % 3600) / 60
+        let cost = elapsed / 3600 * (server.hourlyCost ?? 0)
+        if hours > 0 {
+            return String(format: "$%.2f (%dh %dm running)", cost, hours, minutes)
+        }
+        return String(format: "$%.2f (%dm running)", cost, minutes)
     }
 
     var cpuValue: Double {
@@ -48,8 +75,8 @@ struct ServerCardView: View {
                                 .fill(Color.mfSurfaceLight)
                                 .frame(width: 44, height: 44)
                                 .overlay(
-                                    Image(systemName: server.isLocal ? "desktopcomputer" : "server.rack")
-                                        .foregroundColor(.mfTextMuted)
+                                    Image(systemName: server.isCloud ? "cloud.fill" : (server.isLocal ? "desktopcomputer" : "server.rack"))
+                                        .foregroundColor(server.isCloud ? .mfPrimary : .mfTextMuted)
                                 )
                             Circle()
                                 .fill(statusColor)
@@ -76,6 +103,22 @@ struct ServerCardView: View {
                                         .clipShape(Capsule())
                                 }
                             }
+
+                            // Cloud badge
+                            if server.isCloud {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "cloud.bolt.fill")
+                                        .font(.system(size: 8))
+                                    Text(server.cloudPlan ?? "Cloud")
+                                        .lineLimit(1)
+                                }
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.mfPrimary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.mfPrimary.opacity(0.1))
+                                .clipShape(Capsule())
+                            }
                         }
                     }
                     Spacer()
@@ -88,7 +131,39 @@ struct ServerCardView: View {
                     .buttonStyle(.plain)
                 }
 
-                if !server.isEnabled {
+                // Cloud deploy progress
+                if let progress = cloudDeployProgress {
+                    VStack(spacing: 10) {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(progress.message)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.mfTextSecondary)
+                                .lineLimit(2)
+                        }
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.mfSurfaceLight)
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.mfPrimary)
+                                    .frame(width: geo.size.width * CGFloat(progress.progress) / 100.0)
+                                    .animation(.easeInOut(duration: 0.4), value: progress.progress)
+                            }
+                        }
+                        .frame(height: 6)
+                        Text("\(progress.progress)%")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.mfPrimary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .padding(.horizontal, 4)
+                    .background(Color.mfPrimary.opacity(0.03))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.mfPrimary.opacity(0.1)))
+                } else if !server.isEnabled {
                     // Disabled state
                     VStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle")
@@ -295,9 +370,15 @@ struct ServerCardView: View {
 
             // Footer
             HStack {
-                Text(server.ramGb.map { "\(Int($0)) GB RAM" } ?? "--")
-                    .font(.mfCaption)
-                    .foregroundColor(.mfTextMuted)
+                if server.isCloud, let runTime = cloudRunningTime {
+                    Text(runTime)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.mfWarning)
+                } else {
+                    Text(server.ramGb.map { "\(Int($0)) GB RAM" } ?? "--")
+                        .font(.mfCaption)
+                        .foregroundColor(.mfTextMuted)
+                }
                 Spacer()
 
                 if server.status == "online" || server.isLocal {
@@ -339,6 +420,28 @@ struct ServerCardView: View {
                         .buttonStyle(.plain)
                         .disabled(isBenchmarking || benchmarkCompleted)
                         .padding(.trailing, 12)
+                    }
+                }
+
+                if server.isCloud && server.cloudStatus == "active" {
+                    Button {
+                        showTeardownConfirm = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 10))
+                            Text("TEARDOWN")
+                        }
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.mfError)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 8)
+                    .alert("Tear Down Cloud GPU?", isPresented: $showTeardownConfirm) {
+                        Button("Cancel", role: .cancel) { }
+                        Button("Tear Down", role: .destructive) { onTeardown?() }
+                    } message: {
+                        Text("This will destroy the Vultr instance and stop billing. Any active jobs will be cancelled.")
                     }
                 }
 

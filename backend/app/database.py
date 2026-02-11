@@ -30,7 +30,7 @@ async def init_database():
         plex_server, plex_library, media_item, transcode_preset,
         transcode_job, worker_server, job_log, recommendation,
         custom_tag, notification_config, app_settings, filter_preset,
-        server_benchmark,
+        server_benchmark, cloud_cost,
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -57,6 +57,15 @@ async def _run_migrations(conn):
         ("worker_servers", "consecutive_failures", "INTEGER DEFAULT 0"),
         ("worker_servers", "provision_log", "TEXT"),
         ("plex_servers", "benchmark_path", "VARCHAR(500)"),
+        # Cloud GPU columns
+        ("worker_servers", "cloud_provider", "VARCHAR(20)"),
+        ("worker_servers", "cloud_instance_id", "VARCHAR(100)"),
+        ("worker_servers", "cloud_plan", "VARCHAR(50)"),
+        ("worker_servers", "cloud_region", "VARCHAR(20)"),
+        ("worker_servers", "cloud_created_at", "DATETIME"),
+        ("worker_servers", "cloud_auto_teardown", "BOOLEAN DEFAULT 1"),
+        ("worker_servers", "cloud_idle_minutes", "INTEGER DEFAULT 30"),
+        ("worker_servers", "cloud_status", "VARCHAR(20)"),
     ]
     for table, column, col_type in migrations:
         try:

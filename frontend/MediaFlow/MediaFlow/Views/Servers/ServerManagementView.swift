@@ -4,6 +4,7 @@ struct ServerManagementView: View {
     @StateObject private var viewModel = ServerManagementViewModel()
     @State private var addPanel = AddServerPanel()
     @State private var editPanel = EditServerPanel()
+    @State private var cloudDeployPanel = CloudDeployPanel()
     @State private var showComparison = false
 
     var body: some View {
@@ -44,6 +45,19 @@ struct ServerManagementView: View {
                         .buttonStyle(.plain)
 
                         Button {
+                            cloudDeployPanel.show {
+                                Task { await viewModel.loadServers() }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "cloud.bolt")
+                                Text("Deploy Cloud GPU")
+                            }
+                            .primaryButton()
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
                             addPanel.show {
                                 Task { await viewModel.loadServers() }
                             }
@@ -52,7 +66,7 @@ struct ServerManagementView: View {
                                 Image(systemName: "plus")
                                 Text("Add Server Node")
                             }
-                            .primaryButton()
+                            .secondaryButton()
                         }
                         .buttonStyle(.plain)
                     }
@@ -79,6 +93,7 @@ struct ServerManagementView: View {
                             provisionStep: viewModel.provisionSteps[server.id],
                             provisionCompleted: viewModel.provisionCompleted.contains(server.id),
                             provisionError: viewModel.provisionError[server.id],
+                            cloudDeployProgress: viewModel.cloudDeployProgress[server.id],
                             onEdit: {
                                 editPanel.show(
                                     server: server,
@@ -95,6 +110,9 @@ struct ServerManagementView: View {
                             },
                             onProvision: {
                                 Task { await viewModel.triggerProvision(for: server) }
+                            },
+                            onTeardown: {
+                                Task { await viewModel.teardownCloudServer(server) }
                             }
                         )
                     }
