@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Transcode Configuration</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#256af4",
+                        "background-light": "#f5f6f8",
+                        "background-dark": "#101622",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 min-h-screen">
+<!-- Dashboard Background Mockup (Dimmed) -->
+<div class="fixed inset-0 z-0 opacity-20 pointer-events-none p-8">
+<div class="grid grid-cols-4 gap-6">
+<div class="h-64 bg-slate-800 rounded-xl"></div>
+<div class="h-64 bg-slate-800 rounded-xl"></div>
+<div class="h-64 bg-slate-800 rounded-xl"></div>
+<div class="h-64 bg-slate-800 rounded-xl"></div>
+</div>
+</div>
+<!-- Modal Overlay Backdrop -->
+<div class="fixed inset-0 z-10 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 lg:p-8">
+<!-- Main Configuration Modal -->
+<div class="bg-white dark:bg-[#181d29] w-full max-w-6xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
+<!-- Modal Header -->
+<div class="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-icons text-primary">settings_input_component</span>
+<h1 class="text-xl font-bold tracking-tight">Transcode Configuration</h1>
+</div>
+<button class="text-slate-400 hover:text-white transition-colors">
+<span class="material-icons">close</span>
+</button>
+</div>
+<!-- Scrollable Content -->
+<div class="flex-1 overflow-y-auto p-6 space-y-8">
+<!-- Preset Selection -->
+<section>
+<h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-4">Quick Presets</h2>
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+<button class="group p-4 rounded-xl border-2 border-primary bg-primary/5 text-left transition-all">
+<div class="flex items-center justify-between mb-2">
+<span class="material-icons text-primary">high_quality</span>
+<span class="material-icons text-primary scale-75">check_circle</span>
+</div>
+<p class="font-bold text-sm">Balanced</p>
+<p class="text-xs text-slate-400 mt-1">Optimal quality to size ratio for home streaming.</p>
+</button>
+<button class="group p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 text-left transition-all">
+<div class="flex items-center justify-between mb-2">
+<span class="material-icons text-slate-400 group-hover:text-primary">save_alt</span>
+</div>
+<p class="font-bold text-sm">Storage Saver</p>
+<p class="text-xs text-slate-400 mt-1">HEVC compression targeting maximum storage reduction.</p>
+</button>
+<button class="group p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 text-left transition-all">
+<div class="flex items-center justify-between mb-2">
+<span class="material-icons text-slate-400 group-hover:text-primary">smartphone</span>
+</div>
+<p class="font-bold text-sm">Mobile Optimized</p>
+<p class="text-xs text-slate-400 mt-1">H.264 at 1080p for broad device compatibility.</p>
+</button>
+<button class="group p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-primary/50 text-left transition-all">
+<div class="flex items-center justify-between mb-2">
+<span class="material-icons text-slate-400 group-hover:text-primary">star</span>
+</div>
+<p class="font-bold text-sm">Ultra Fidelity</p>
+<p class="text-xs text-slate-400 mt-1">Near-lossless AV1 encoding for archival purposes.</p>
+</button>
+</div>
+</section>
+<!-- Split-View Configuration -->
+<div class="grid grid-cols-1 lg:grid-cols-11 gap-4 items-stretch">
+<!-- Source Column -->
+<div class="lg:col-span-5 bg-slate-50 dark:bg-slate-900/50 rounded-xl p-6 border border-slate-200 dark:border-slate-800">
+<div class="flex items-center justify-between mb-6">
+<h3 class="font-bold flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-red-500"></span>
+                                Source File
+                            </h3>
+<span class="text-xs font-medium px-2 py-1 bg-slate-200 dark:bg-slate-800 rounded">ORIGINAL</span>
+</div>
+<div class="relative rounded-lg overflow-hidden aspect-video mb-6 group">
+<img alt="Cinematic source preview" class="w-full h-full object-cover" data-alt="High quality cinematic movie scene snapshot" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB6JFEHUqgCqT7hZ-X9-Zb9kb1yES4WBEIxuPZ_kPpxtFJMqXtPe1O4kAV-2nUevxHg2gZMtbBK7unv4dyTktT63cFaeugxeSVTMQlipwgcgdK4-kafszrAVl8_W00R2DFP1WhO7exdvuYFsppQJUHzjIlV7_vyQ2gVZR4q0Hxr-E9c48G9KZabZADGwGET0SgNL_Dxzu1GUlqG7L3PH-4ZENL4kWCs_kbgoOVx4cDOZZgbncpBTI4mOkBzvXCIczu4A-E3JRRBAhdU"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent flex flex-col justify-end p-4">
+<p class="text-sm font-medium text-white truncate">Dune.2021.2160p.REMUX.Hybrid.DoVi.HDR10.mkv</p>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-y-4 text-sm">
+<div>
+<p class="text-slate-500 mb-1">Resolution</p>
+<p class="font-mono">3840 x 2160 (4K)</p>
+</div>
+<div>
+<p class="text-slate-500 mb-1">Bitrate</p>
+<p class="font-mono">74.2 Mbps</p>
+</div>
+<div>
+<p class="text-slate-500 mb-1">Codec</p>
+<p class="font-mono">H.264 High Profile</p>
+</div>
+<div>
+<p class="text-slate-500 mb-1">Frame Rate</p>
+<p class="font-mono">23.976 fps</p>
+</div>
+<div class="col-span-2 pt-4 mt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-end">
+<div>
+<p class="text-slate-500 mb-1">Total Size</p>
+<p class="text-2xl font-bold font-mono">60.4 <span class="text-sm font-normal text-slate-500">GB</span></p>
+</div>
+<div class="text-right">
+<span class="material-icons text-slate-300 dark:text-slate-700 text-4xl">storage</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Divider/Arrow -->
+<div class="lg:col-span-1 flex flex-row lg:flex-col items-center justify-center gap-2">
+<div class="hidden lg:block h-full w-px bg-slate-200 dark:bg-slate-800"></div>
+<div class="bg-primary rounded-full p-2 text-white shadow-lg shadow-primary/20">
+<span class="material-icons block">trending_flat</span>
+</div>
+<div class="hidden lg:block h-full w-px bg-slate-200 dark:bg-slate-800"></div>
+</div>
+<!-- Target Column -->
+<div class="lg:col-span-5 bg-primary/5 rounded-xl p-6 border border-primary/20">
+<div class="flex items-center justify-between mb-6">
+<h3 class="font-bold flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+                                Target Configuration
+                            </h3>
+<div class="flex items-center gap-2 bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded text-xs font-bold">
+<span class="material-icons text-[14px]">arrow_downward</span>
+                                65% REDUCTION
+                            </div>
+</div>
+<!-- Target Controls -->
+<div class="space-y-5">
+<div>
+<label class="block text-xs font-semibold text-slate-500 uppercase mb-2">Codec &amp; Container</label>
+<div class="grid grid-cols-2 gap-3">
+<select class="w-full bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-primary focus:border-primary">
+<option>HEVC (H.265)</option>
+<option>AV1 (Recommended)</option>
+<option>H.264 (AVC)</option>
+</select>
+<select class="w-full bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 rounded-lg text-sm focus:ring-primary focus:border-primary">
+<option>MKV Container</option>
+<option>MP4 Container</option>
+</select>
+</div>
+</div>
+<div>
+<label class="block text-xs font-semibold text-slate-500 uppercase mb-2">Target Resolution</label>
+<div class="flex flex-wrap gap-2">
+<button class="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm hover:border-primary transition-colors">4K</button>
+<button class="px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium shadow-lg shadow-primary/20">1080p</button>
+<button class="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm hover:border-primary transition-colors">720p</button>
+<button class="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm hover:border-primary transition-colors">SD</button>
+</div>
+</div>
+<div>
+<div class="flex items-center justify-between mb-2">
+<label class="text-xs font-semibold text-slate-500 uppercase">Target Bitrate</label>
+<span class="text-sm font-mono font-bold text-primary">12.5 Mbps</span>
+</div>
+<input class="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-primary" max="50" min="1" type="range" value="12"/>
+<div class="flex justify-between mt-1">
+<span class="text-[10px] text-slate-500">Lower Quality</span>
+<span class="text-[10px] text-slate-500">Visually Lossless</span>
+</div>
+</div>
+<div class="pt-4 border-t border-slate-200 dark:border-slate-800 flex justify-between items-end">
+<div>
+<p class="text-slate-500 mb-1">Estimated Size</p>
+<p class="text-2xl font-bold font-mono text-primary">21.1 <span class="text-sm font-normal text-slate-500">GB</span></p>
+</div>
+<div class="text-right">
+<div class="inline-flex items-center gap-1 text-emerald-500 bg-emerald-500/10 px-3 py-1 rounded-full text-sm font-bold">
+<span class="material-icons text-sm">bolt</span>
+                                        Saves 39.3 GB
+                                    </div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Hardware Acceleration Toggle -->
+<div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
+<div class="flex items-center gap-3">
+<div class="p-2 bg-amber-500/10 rounded-lg">
+<span class="material-icons text-amber-500">memory</span>
+</div>
+<div>
+<p class="font-medium text-sm">NVENC Hardware Acceleration</p>
+<p class="text-xs text-slate-500">NVIDIA GeForce RTX 3080 detected. 4x encoding speed active.</p>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-slate-200 peer-focus:outline-none dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
+</label>
+</div>
+</div>
+<!-- Modal Footer -->
+<div class="px-6 py-5 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+<button class="w-full sm:w-auto px-6 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors flex items-center justify-center gap-2">
+<span class="material-icons text-lg">play_circle_outline</span>
+                    Preview Sample (30s)
+                </button>
+<div class="flex w-full sm:w-auto items-center gap-3">
+<button class="flex-1 sm:flex-none px-8 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                        Queue Task
+                    </button>
+<button class="flex-1 sm:flex-none px-8 py-2.5 rounded-lg bg-primary text-white text-sm font-bold shadow-lg shadow-primary/30 hover:bg-primary/90 transition-all active:scale-[0.98]">
+                        Start Now
+                    </button>
+</div>
+</div>
+</div>
+</div>
+</body></html>

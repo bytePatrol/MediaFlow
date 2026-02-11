@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Active Processing Queue - MediaFlow Pro</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#256af4",
+                        "background-light": "#f5f6f8",
+                        "background-dark": "#101622",
+                        "surface-dark": "#1a2234",
+                        "card-dark": "#1e293b",
+                        "success-green": "#22c55e",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "mono": ["JetBrains Mono", "monospace"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            scrollbar-width: thin;
+            scrollbar-color: #256af4 #101622;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #101622;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #256af4;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-display min-h-screen flex flex-col">
+<!-- Header / Global Status Bar -->
+<header class="sticky top-0 z-50 bg-white/80 dark:bg-background-dark/80 backdrop-blur-md border-b border-slate-200 dark:border-primary/10 px-6 py-4 flex items-center justify-between">
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+<span class="material-icons-round text-white text-xl">auto_settings</span>
+</div>
+<h1 class="text-xl font-bold tracking-tight">Active Processing Queue</h1>
+</div>
+<div class="hidden md:flex items-center gap-6 border-l border-slate-200 dark:border-slate-800 pl-6">
+<div class="flex flex-col">
+<span class="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">Active Jobs</span>
+<span class="text-lg font-mono font-semibold text-primary">04</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">Aggregate FPS</span>
+<span class="text-lg font-mono font-semibold text-success-green">214.8</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">Queue Status</span>
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-success-green animate-pulse"></span>
+<span class="text-sm font-medium">Processing</span>
+</div>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<button class="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-sm font-semibold">
+<span class="material-icons-round text-sm">history</span>
+                History
+            </button>
+<button class="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors text-sm font-semibold">
+<span class="material-icons-round text-sm">pause_circle</span>
+                Pause All
+            </button>
+</div>
+</header>
+<main class="flex-1 flex overflow-hidden">
+<!-- Sidebar Navigation -->
+<aside class="w-64 border-r border-slate-200 dark:border-slate-800 p-4 hidden lg:flex flex-col gap-2">
+<div class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-3 mb-2">Filters</div>
+<a class="flex items-center justify-between px-3 py-2 rounded-lg bg-primary/10 text-primary font-medium" href="#">
+<div class="flex items-center gap-3">
+<span class="material-icons-round text-xl">play_circle</span>
+<span>All Processing</span>
+</div>
+<span class="text-xs bg-primary text-white px-2 py-0.5 rounded-full">4</span>
+</a>
+<a class="flex items-center justify-between px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<div class="flex items-center gap-3">
+<span class="material-icons-round text-xl">high_quality</span>
+<span>Transcoding</span>
+</div>
+<span class="text-xs">3</span>
+</a>
+<a class="flex items-center justify-between px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<div class="flex items-center gap-3">
+<span class="material-icons-round text-xl">analytics</span>
+<span>Analyzing</span>
+</div>
+<span class="text-xs">1</span>
+</a>
+<a class="flex items-center justify-between px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<div class="flex items-center gap-3">
+<span class="material-icons-round text-xl">check_circle</span>
+<span>Completed</span>
+</div>
+<span class="text-xs">128</span>
+</a>
+<div class="mt-8 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-3 mb-2">Global Resources</div>
+<div class="px-3 space-y-4">
+<div class="space-y-1.5">
+<div class="flex justify-between text-xs font-medium">
+<span class="text-slate-500">CPU Usage</span>
+<span>42%</span>
+</div>
+<div class="h-1 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full" style="width: 42%"></div>
+</div>
+</div>
+<div class="space-y-1.5">
+<div class="flex justify-between text-xs font-medium">
+<span class="text-slate-500">GPU (NVENC)</span>
+<span>88%</span>
+</div>
+<div class="h-1 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-success-green rounded-full" style="width: 88%"></div>
+</div>
+</div>
+<div class="space-y-1.5">
+<div class="flex justify-between text-xs font-medium">
+<span class="text-slate-500">RAM Load</span>
+<span>6.2 GB</span>
+</div>
+<div class="h-1 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-amber-500 rounded-full" style="width: 55%"></div>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<section class="flex-1 p-6 overflow-y-auto custom-scrollbar">
+<div class="max-w-6xl mx-auto space-y-4">
+<!-- Active Job Card 1 -->
+<div class="bg-white dark:bg-surface-dark border border-slate-200 dark:border-primary/10 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+<div class="p-5">
+<div class="flex items-start gap-4">
+<div class="relative w-40 h-24 flex-shrink-0 rounded-lg overflow-hidden bg-slate-900">
+<img alt="Movie Thumbnail" class="w-full h-full object-cover opacity-60" data-alt="Cinematic movie scene with high contrast" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAW8b6FxXH0MZlxatJWX-FZ6pzwM-jGiQKvjWIXqEFZqfpy2PJTRVGCYX1V7kfjjlRGpoRqQpC4RIvGshB9UBj2JBWHntGpGrE5R2ie-ZfLzlFvk_d7yHYYvXMH9dMDJs0LL0XOkwQfpXjyz_DE8grz8UqgSmZoUQYkIB11nypF805o0IQVegQnw7RUSBc13mLuliyi7d9RvJ2dG0PT5xsNx-81mPY8dFTQZOx4PtKWSyZxuo7JATRhU82smLxoepAOq2exqSlOLO_E"/>
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="material-icons-round text-white/50">movie</span>
+</div>
+<div class="absolute bottom-1 right-1 bg-black/80 px-1.5 py-0.5 rounded text-[10px] font-mono text-white">4K HDR</div>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-start justify-between mb-1">
+<div>
+<h3 class="text-lg font-bold truncate">Interstellar (2014).mkv</h3>
+<p class="text-xs text-slate-500 flex items-center gap-2">
+<span class="font-mono">4K HEVC HDR10</span>
+<span class="material-icons-round text-[10px]">arrow_forward</span>
+<span class="font-mono text-primary">1080p H.264 (8Mbps)</span>
+</p>
+</div>
+<div class="flex gap-2">
+<button class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
+<span class="material-icons-round text-sm">priority_high</span>
+</button>
+<button class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
+<span class="material-icons-round text-sm">more_vert</span>
+</button>
+</div>
+</div>
+<div class="mt-4 flex flex-wrap gap-4">
+<div class="bg-slate-50 dark:bg-slate-800/50 px-3 py-1.5 rounded-lg flex items-center gap-3">
+<div class="flex flex-col leading-none">
+<span class="text-[9px] uppercase text-slate-500 font-bold tracking-tighter">Speed</span>
+<span class="text-sm font-mono font-bold text-success-green">48.2 FPS</span>
+</div>
+<div class="w-px h-6 bg-slate-200 dark:bg-slate-700"></div>
+<div class="flex flex-col leading-none">
+<span class="text-[9px] uppercase text-slate-500 font-bold tracking-tighter">ETA</span>
+<span class="text-sm font-mono font-bold">12:04:18</span>
+</div>
+<div class="w-px h-6 bg-slate-200 dark:bg-slate-700"></div>
+<div class="flex flex-col leading-none">
+<span class="text-[9px] uppercase text-slate-500 font-bold tracking-tighter">GPU Load</span>
+<span class="text-sm font-mono font-bold">34%</span>
+</div>
+</div>
+<div class="flex-1 min-w-[200px] flex flex-col justify-end">
+<div class="flex justify-between items-end mb-2">
+<span class="text-xs font-semibold text-primary">Transcoding...</span>
+<span class="text-xs font-mono font-bold text-slate-400">74%</span>
+</div>
+<div class="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full relative" style="width: 74%">
+<div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-[shimmer_2s_infinite]"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Active Job Card 2 -->
+<div class="bg-white dark:bg-surface-dark border border-slate-200 dark:border-primary/10 rounded-xl overflow-hidden shadow-sm">
+<div class="p-5">
+<div class="flex items-start gap-4">
+<div class="relative w-40 h-24 flex-shrink-0 rounded-lg overflow-hidden bg-slate-900">
+<img alt="TV Show Thumbnail" class="w-full h-full object-cover opacity-60" data-alt="Modern sci-fi television show poster art" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDgG1hDaHj0AEQUfJjbxG_oOBfg46CE7e9o_InK5ESyEpBLAqVjfApfKq4AkzZ5UiOxuRtLZfusroWUKHoyMgSeZHzEvM2fwVcSPGTaW-yTleII0ctMVMIk-myxZHwLI1wPvqaCLGysBvSGAXm3bwRfHtLi37CBR2EQ6YBk7VxhM3iwPMy97HqMytkjME9GHe368CF3Utn0rqn-S0JQ9pXpbB44YDyn2KH9GpTbGJNk_43HDVYZTIGmxQnBlJ_l3hn7xntQVdc-sGXv"/>
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="material-icons-round text-white/50">tv</span>
+</div>
+<div class="absolute bottom-1 right-1 bg-black/80 px-1.5 py-0.5 rounded text-[10px] font-mono text-white">1080p</div>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-start justify-between mb-1">
+<div>
+<h3 class="text-lg font-bold truncate">Foundation - S02E08 - Tellers.mkv</h3>
+<p class="text-xs text-slate-500 flex items-center gap-2">
+<span class="font-mono">1080p H.264</span>
+<span class="material-icons-round text-[10px]">arrow_forward</span>
+<span class="font-mono text-primary">HEVC Main 10 (Direct Stream)</span>
+</p>
+</div>
+<div class="flex gap-2">
+<button class="p-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors">
+<span class="material-icons-round text-sm">close</span>
+</button>
+</div>
+</div>
+<div class="mt-4 flex flex-wrap gap-4">
+<div class="bg-slate-50 dark:bg-slate-800/50 px-3 py-1.5 rounded-lg flex items-center gap-3">
+<div class="flex flex-col leading-none">
+<span class="text-[9px] uppercase text-slate-500 font-bold tracking-tighter">Speed</span>
+<span class="text-sm font-mono font-bold text-success-green">112.4 FPS</span>
+</div>
+<div class="w-px h-6 bg-slate-200 dark:bg-slate-700"></div>
+<div class="flex flex-col leading-none">
+<span class="text-[9px] uppercase text-slate-500 font-bold tracking-tighter">ETA</span>
+<span class="text-sm font-mono font-bold">01:15:30</span>
+</div>
+<div class="w-px h-6 bg-slate-200 dark:bg-slate-700"></div>
+<div class="flex flex-col leading-none">
+<span class="text-[9px] uppercase text-slate-500 font-bold tracking-tighter">CPU Load</span>
+<span class="text-sm font-mono font-bold">12%</span>
+</div>
+</div>
+<div class="flex-1 min-w-[200px] flex flex-col justify-end">
+<div class="flex justify-between items-end mb-2">
+<span class="text-xs font-semibold text-primary">Optimizing...</span>
+<span class="text-xs font-mono font-bold text-slate-400">31%</span>
+</div>
+<div class="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full" style="width: 31%"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Analysis Job Card -->
+<div class="bg-white dark:bg-surface-dark border border-slate-200 dark:border-primary/10 rounded-xl overflow-hidden shadow-sm">
+<div class="p-5">
+<div class="flex items-start gap-4">
+<div class="w-10 h-10 flex-shrink-0 rounded-lg bg-blue-500/10 flex items-center justify-center">
+<span class="material-icons-round text-blue-500">waves</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-start justify-between mb-1">
+<div>
+<h3 class="text-md font-bold truncate">Intro &amp; Outro Credit Detection</h3>
+<p class="text-xs text-slate-500">Analyzing temporal markers for <span class="text-slate-300">The Bear (Season 2)</span></p>
+</div>
+<button class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors">
+<span class="material-icons-round text-sm">cancel</span>
+</button>
+</div>
+<div class="mt-4 flex flex-wrap gap-4 items-center">
+<div class="flex-1 min-w-[200px] flex flex-col justify-end">
+<div class="flex justify-between items-end mb-2">
+<span class="text-xs font-semibold text-slate-400 italic">Processing audio waveforms...</span>
+<span class="text-xs font-mono font-bold text-slate-400">88%</span>
+</div>
+<div class="h-1 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-slate-400 rounded-full" style="width: 88%"></div>
+</div>
+</div>
+<div class="bg-slate-50 dark:bg-slate-800/50 px-3 py-1 rounded-lg">
+<span class="text-xs font-mono font-bold text-slate-400 tracking-tight">8 / 10 EPISODES</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Completed Job (Success State) -->
+<div class="bg-green-500/5 dark:bg-green-500/5 border border-green-500/20 rounded-xl overflow-hidden relative group">
+<div class="absolute top-0 right-0 p-2">
+<span class="text-[10px] font-bold text-success-green bg-success-green/10 px-2 py-0.5 rounded uppercase">Done</span>
+</div>
+<div class="p-5">
+<div class="flex items-start gap-4">
+<div class="relative w-40 h-24 flex-shrink-0 rounded-lg overflow-hidden bg-slate-900 grayscale-[50%]">
+<img alt="Completed Movie" class="w-full h-full object-cover opacity-40" data-alt="Classic film projector and reels" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBq2f8l6AIvBCpE9ZXOMZR6sHI0fYV88zxrCVteGQyWchjsf0CuxmNGEoD1bon_rlP8CM2v6kqAsajSWNXOYOCp0orRrqRCHdXMTRjgjwBQ399sqVkl3L3RHYVtr_D5P_PhJGCmXNoH5n2Czo3NQnPXvRYor-ZWuZMfCDImX6-r6hV3eVU1EdqomkHTemVcD6rJmZbdC-dRUXfIGthkonqJ7z3U3S05VcsHOYcqZNRFkPkTxeX_mQfeShHN8d3PW0Vqx5ZPsz3C010q"/>
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="material-icons-round text-success-green">check_circle</span>
+</div>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-start justify-between mb-1">
+<div>
+<h3 class="text-lg font-bold truncate text-slate-500">The Dark Knight (2008).mkv</h3>
+<p class="text-xs text-slate-500 flex items-center gap-2">
+<span>Finished in 14m 22s</span>
+<span class="w-1 h-1 rounded-full bg-slate-700"></span>
+<span class="font-mono">Output: 12.4 GB</span>
+</p>
+</div>
+<div class="flex gap-2">
+<button class="px-3 py-1.5 rounded-lg bg-success-green text-white hover:bg-success-green/90 transition-colors text-xs font-bold">
+                                            OPEN FOLDER
+                                        </button>
+<button class="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400">
+<span class="material-icons-round text-sm">delete_outline</span>
+</button>
+</div>
+</div>
+<div class="mt-4">
+<div class="h-2 w-full bg-success-green/20 rounded-full overflow-hidden">
+<div class="h-full bg-success-green rounded-full w-full"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Bottom Performance Bar -->
+<footer class="bg-white dark:bg-surface-dark border-t border-slate-200 dark:border-primary/10 px-6 py-2 flex items-center justify-between text-[11px] font-medium text-slate-500">
+<div class="flex gap-6">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-success-green"></span>
+<span>System Health: Nominal</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-icons-round text-[14px]">storage</span>
+<span>Storage: 4.2TB Free</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-icons-round text-[14px]">thermostat</span>
+<span>GPU Temp: 68°C</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span>Server: NAS-PRO-01</span>
+<span class="text-slate-300 dark:text-slate-700">|</span>
+<span>Version 2.4.1-stable</span>
+</div>
+</footer>
+</body></html><!-- End of design -->
