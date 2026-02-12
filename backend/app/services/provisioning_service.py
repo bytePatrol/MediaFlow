@@ -217,19 +217,27 @@ async def run_provisioning(server_id: int, install_gpu_drivers: bool = False):
                             "grep VERSION_CODENAME /etc/os-release 2>/dev/null | cut -d= -f2"
                         )
                         codename = (codename_result.get("stdout") or "").strip() or "noble"
-                        jf_install = (
+                        # Download and install Jellyfin ffmpeg + dependencies
+                        jf_download = (
                             f"cd /tmp && "
                             f"wget -q -O jellyfin-ffmpeg.deb "
                             f"'https://repo.jellyfin.org/files/ffmpeg/ubuntu/latest-7.x/amd64/"
-                            f"jellyfin-ffmpeg7_7.1.3-1-{codename}_amd64.deb' && "
-                            f"{sudo_prefix}dpkg -i --force-depends jellyfin-ffmpeg.deb 2>/dev/null; "
-                            f"{sudo_prefix}apt-get install -f -y -qq 2>/dev/null; "
-                            f"rm -f /tmp/jellyfin-ffmpeg.deb && "
-                            f"echo JF_OK"
+                            f"jellyfin-ffmpeg7_7.1.3-1-{codename}_amd64.deb'"
                         )
-                        jf_result = await ssh.run_command(jf_install, timeout=120)
+                        await ssh.run_command(jf_download, timeout=60)
+                        await ssh.run_command(
+                            f"{sudo_prefix}dpkg -i --force-depends /tmp/jellyfin-ffmpeg.deb", timeout=30
+                        )
+                        await ssh.run_command(
+                            f"{sudo_prefix}apt-get install -f -y", timeout=120
+                        )
+                        await ssh.run_command("rm -f /tmp/jellyfin-ffmpeg.deb")
 
-                        if "JF_OK" in (jf_result.get("stdout") or ""):
+                        # Check if Jellyfin ffmpeg binary exists
+                        jf_check = await ssh.run_command(
+                            "test -x /usr/lib/jellyfin-ffmpeg/ffmpeg && echo JF_OK"
+                        )
+                        if "JF_OK" in (jf_check.get("stdout") or ""):
                             # Replace static ffmpeg with Jellyfin's NVENC-compatible build
                             await ssh.run_command(
                                 f"{sudo_prefix}ln -sf /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg && "

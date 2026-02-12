@@ -249,6 +249,9 @@ class TranscodeWorker:
 
         # If file not found locally, try pulling from Plex server via SSH
         pulled_from_nas = False
+        nas_ssh = None
+        plex_server = None
+        staging_dir = "/tmp/mediaflow"
         if not os.path.exists(local_source):
             logger.info(f"Job {job.id}: source not found locally, attempting SSH pull from Plex server")
             media = await self._get_media(job, session)
@@ -450,21 +453,25 @@ class TranscodeWorker:
                 })
                 return
 
-        # Download output back
-        local_output = job.output_path
-        if not local_output:
-            # Derive output path from source_path
-            base = os.path.splitext(local_source)[0]
-            container = config.get("container", "mkv")
-            local_output = f"{base}.mediaflow.{container}"
+        # Download output from remote worker
+        # When source was pulled from NAS, download to local staging dir
+        # (the NAS path doesn't exist locally)
+        if pulled_from_nas:
+            local_output = os.path.join(
+                staging_dir, os.path.basename(remote_output)
+            )
+        else:
+            local_output = job.output_path
+            if not local_output:
+                base = os.path.splitext(local_source)[0]
+                container = config.get("container", "mkv")
+                local_output = f"{base}.mediaflow.{container}"
 
-        # Download with progress
         job.status = "transferring"
         await session.commit()
         await manager.broadcast("job.status_changed", {"job_id": job.id, "status": "transferring"})
 
         logger.info(f"Job {job.id}: downloading output from {worker.hostname}:{remote_output}")
-        # Get remote file size for progress tracking
         size_cmd = f"stat -c %s {shlex.quote(remote_output)} 2>/dev/null || stat -f %z {shlex.quote(remote_output)}"
         size_result = await ssh.run_command(size_cmd)
         dl_total = 0
@@ -487,16 +494,117 @@ class TranscodeWorker:
         # Cleanup remote temp files
         await ssh.run_command(f"rm -f {shlex.quote(remote_source)} {shlex.quote(remote_output)}")
 
-        # Update job output path to local
-        job.output_path = local_output
-
         log_lines = (result.get("stderr", "") or "").split("\n")
 
         # Record cloud cost for this job
         if worker.cloud_provider:
             await self._record_cloud_job_cost(worker, job, start_time, session)
 
-        await self._handle_success(job, media, log_lines, start_time, session)
+        if pulled_from_nas:
+            # Upload output back to NAS and replace original
+            nas_remote_dir = os.path.dirname(job.source_path)
+            nas_remote_output = f"{nas_remote_dir}/{os.path.basename(local_output)}"
+            output_size_mb = os.path.getsize(local_output) / (1024 * 1024) if os.path.exists(local_output) else 0
+
+            await manager.broadcast("job.log", {
+                "job_id": job.id,
+                "message": f"Uploading result ({output_size_mb:.0f} MB) to NAS {plex_server.ssh_hostname}...",
+            })
+            logger.info(f"Job {job.id}: uploading {local_output} to {plex_server.ssh_hostname}:{nas_remote_output}")
+
+            ul_size = os.path.getsize(local_output) if os.path.exists(local_output) else 0
+            ul_progress = self._make_transfer_progress_cb(job.id, "upload", ul_size)
+            uploaded = await nas_ssh.upload_file(local_output, nas_remote_output, progress_callback=ul_progress)
+            if not uploaded:
+                for f in (local_source, local_output):
+                    if f and os.path.exists(f):
+                        os.remove(f)
+                job.status = "failed"
+                job.ffmpeg_log = f"Failed to upload output to {plex_server.ssh_hostname}"
+                await session.commit()
+                await manager.broadcast("job.failed", {"job_id": job.id, "error": job.ffmpeg_log})
+                return
+
+            # Replace original on NAS
+            await manager.broadcast("job.log", {
+                "job_id": job.id, "message": "Replacing original file on NAS...",
+            })
+            backup_path = job.source_path + ".original"
+            original_ext = os.path.splitext(job.source_path)[1]
+            output_ext = os.path.splitext(nas_remote_output)[1]
+            final_remote = (
+                os.path.splitext(job.source_path)[0] + output_ext
+                if original_ext != output_ext else job.source_path
+            )
+
+            rename_cmds = " && ".join([
+                f"mv {shlex.quote(job.source_path)} {shlex.quote(backup_path)}",
+                f"mv {shlex.quote(nas_remote_output)} {shlex.quote(final_remote)}",
+                f"rm -f {shlex.quote(backup_path)}",
+            ])
+            replace_result = await nas_ssh.run_command(rename_cmds)
+            if replace_result["exit_status"] != 0:
+                logger.error(f"Job {job.id}: NAS replacement failed: {replace_result.get('stderr', '')}")
+                await nas_ssh.run_command(
+                    f"test -f {shlex.quote(backup_path)} && mv {shlex.quote(backup_path)} {shlex.quote(job.source_path)}"
+                )
+
+            # Get output size from NAS
+            size_result = await nas_ssh.run_command(
+                f"stat -c %s {shlex.quote(final_remote)} 2>/dev/null || stat -f %z {shlex.quote(final_remote)}"
+            )
+            if size_result["exit_status"] == 0:
+                try:
+                    job.output_size = int(size_result["stdout"].strip())
+                except ValueError:
+                    pass
+
+            # Update media item if extension changed
+            if media and final_remote != job.source_path:
+                media.file_path = final_remote
+                media.file_size = job.output_size
+                await session.commit()
+
+            # Clean up local staging files
+            for f in (local_source, local_output):
+                if f and os.path.exists(f):
+                    os.remove(f)
+
+            # Mark completed
+            job.status = "completed"
+            job.progress_percent = 100.0
+            job.completed_at = datetime.utcnow()
+            job.ffmpeg_log = "\n".join(log_lines[-100:]) if log_lines else ""
+            job.output_path = final_remote
+            await session.commit()
+
+            duration = time.time() - start_time
+            log_entry = JobLog(
+                job_id=job.id,
+                worker_server_id=job.worker_server_id,
+                media_item_id=job.media_item_id,
+                title=media.title if media else None,
+                source_codec=media.video_codec if media else None,
+                source_resolution=media.resolution_tier if media else None,
+                source_size=job.source_size,
+                target_size=job.output_size,
+                size_reduction=round(1 - (job.output_size or 0) / max(job.source_size or 1, 1), 3),
+                duration_seconds=round(duration, 1),
+                avg_fps=job.current_fps,
+                status="completed",
+            )
+            session.add(log_entry)
+            await session.commit()
+
+            await manager.broadcast("job.completed", {
+                "job_id": job.id,
+                "output_size": job.output_size,
+                "duration": round(duration, 1),
+            })
+        else:
+            # Local file — use standard success handler
+            job.output_path = local_output
+            await self._handle_success(job, media, log_lines, start_time, session)
 
     async def _execute_ssh_pull(self, job: TranscodeJob,
                                worker: Optional[WorkerServer], session) -> None:
