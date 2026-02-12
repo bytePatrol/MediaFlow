@@ -10,6 +10,15 @@ struct PathMapping: Codable, Identifiable {
     }
 }
 
+struct PathMappingsResponse: Codable {
+    let key: String
+    let value: [PathMapping]?
+}
+
+struct PathMappingsRequest: Codable {
+    let value: [PathMapping]
+}
+
 struct WorkerServer: Identifiable, Codable {
     let id: Int
     let name: String

@@ -153,6 +153,16 @@ class BackendService {
         return try await client.put("/api/cloud/settings", body: request)
     }
 
+    // MARK: - Path Mappings
+    func getPathMappings() async throws -> [PathMapping] {
+        let response: PathMappingsResponse = try await client.get("/api/settings/path_mappings")
+        return response.value ?? []
+    }
+
+    func savePathMappings(_ mappings: [PathMapping]) async throws {
+        let _: PathMappingsResponse = try await client.put("/api/settings/path_mappings", body: PathMappingsRequest(value: mappings))
+    }
+
     // MARK: - Analytics
     func getAnalyticsOverview() async throws -> AnalyticsOverview {
         return try await client.get("/api/analytics/overview")

@@ -7,6 +7,7 @@ struct SettingsView: View {
 
     enum SettingsTab: String, CaseIterable {
         case general = "General"
+        case storage = "Storage"
         case cloudGpu = "Cloud GPU"
         case notifications = "Notifications"
         case api = "API"
@@ -52,6 +53,8 @@ struct SettingsView: View {
                 switch selectedTab {
                 case .general:
                     GeneralSettingsView()
+                case .storage:
+                    StorageSettingsView()
                 case .cloudGpu:
                     CloudGPUSettingsView()
                 case .notifications:
@@ -637,6 +640,159 @@ struct PlexSSHPanelContent: View {
             statusIsError = true
         }
         isTesting = false
+    }
+}
+
+// MARK: - Storage Settings
+
+struct StorageSettingsView: View {
+    @State private var mappings: [PathMapping] = []
+    @State private var isLoading: Bool = true
+    @State private var isSaving: Bool = false
+    @State private var statusMessage: String = ""
+    @State private var statusIsError: Bool = false
+
+    private let service = BackendService()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            // Path Mappings
+            VStack(alignment: .leading, spacing: 12) {
+                Text("PATH MAPPINGS")
+                    .mfSectionHeader()
+
+                Text("Translate media paths from your Plex/NAS server to local mount points. Used when Plex reports paths like /share/... that are mounted locally at /Volumes/...")
+                    .font(.mfBody)
+                    .foregroundColor(.mfTextSecondary)
+
+                if isLoading {
+                    HStack {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .frame(width: 14, height: 14)
+                        Text("Loading mappings...")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextSecondary)
+                    }
+                } else {
+                    ForEach(Array(mappings.enumerated()), id: \.element.id) { index, _ in
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Source Path")
+                                    .font(.mfCaption)
+                                    .foregroundColor(.mfTextMuted)
+                                TextField("/share/ZFS18_DATA/Media", text: $mappings[index].sourcePrefix)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            Image(systemName: "arrow.right")
+                                .foregroundColor(.mfTextMuted)
+                                .padding(.top, 18)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Local Path")
+                                    .font(.mfCaption)
+                                    .foregroundColor(.mfTextMuted)
+                                TextField("/Volumes/media", text: $mappings[index].targetPrefix)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            Button {
+                                mappings.remove(at: index)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.mfError.opacity(0.8))
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.top, 18)
+                        }
+                        .padding(12)
+                        .background(Color.mfSurfaceLight.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+
+                    Button {
+                        mappings.append(PathMapping(sourcePrefix: "", targetPrefix: ""))
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                            Text("Add Mapping")
+                        }
+                        .secondaryButton()
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+            .cardStyle()
+
+            // Save button
+            if !isLoading {
+                HStack {
+                    Button {
+                        Task { await saveMappings() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            if isSaving {
+                                ProgressView().scaleEffect(0.7).frame(width: 14, height: 14)
+                            }
+                            Text(isSaving ? "Saving..." : "Save Path Mappings")
+                        }
+                        .primaryButton()
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSaving)
+
+                    if !statusMessage.isEmpty {
+                        Text(statusMessage)
+                            .font(.mfCaption)
+                            .foregroundColor(statusIsError ? .mfError : .mfSuccess)
+                    }
+                }
+            }
+
+            Spacer()
+        }
+        .task { await loadMappings() }
+    }
+
+    private func loadMappings() async {
+        isLoading = true
+        do {
+            mappings = try await service.getPathMappings()
+        } catch {
+            statusMessage = "Failed to load mappings"
+            statusIsError = true
+        }
+        isLoading = false
+    }
+
+    private func saveMappings() async {
+        isSaving = true
+        statusMessage = ""
+
+        // Filter out rows where both fields are empty
+        let filtered = mappings.filter { !$0.sourcePrefix.isEmpty || !$0.targetPrefix.isEmpty }
+
+        // Warn about incomplete rows
+        let incomplete = filtered.filter { $0.sourcePrefix.isEmpty || $0.targetPrefix.isEmpty }
+        if !incomplete.isEmpty {
+            statusMessage = "Some mappings have only one path filled in — please complete or remove them."
+            statusIsError = true
+            isSaving = false
+            return
+        }
+
+        do {
+            try await service.savePathMappings(filtered)
+            mappings = filtered
+            statusMessage = "Path mappings saved"
+            statusIsError = false
+        } catch {
+            statusMessage = "Save failed: \(error.localizedDescription)"
+            statusIsError = true
+        }
+        isSaving = false
     }
 }
 
