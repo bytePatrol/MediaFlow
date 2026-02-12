@@ -16,6 +16,8 @@ class LibraryViewModel: ObservableObject {
     @Published var sections: [LibrarySection] = []
     @Published var filterState = FilterState()
     @Published var columnConfig = ColumnConfig()
+    @Published var allFilteredTotalSize: Int = 0
+    @Published var isSelectingAll: Bool = false
 
     private let service: BackendService
     private let debouncer = Debouncer(duration: .milliseconds(300))
@@ -120,5 +122,31 @@ class LibraryViewModel: ObservableObject {
         } else {
             selectedItems.insert(id)
         }
+    }
+
+    func selectAllFiltered() async {
+        isSelectingAll = true
+        do {
+            var queryItems = filterState.toQueryItems()
+            if !searchText.isEmpty {
+                queryItems.append(URLQueryItem(name: "search", value: searchText))
+            }
+            let response = try await service.getFilteredItemIds(queryItems: queryItems)
+            selectedItems = Set(response.ids)
+            allFilteredTotalSize = response.totalSize
+        } catch {
+            print("Failed to select all filtered: \(error)")
+        }
+        isSelectingAll = false
+    }
+
+    func clearSelection() {
+        selectedItems.removeAll()
+        allFilteredTotalSize = 0
+    }
+
+    var hasSelectionBeyondPage: Bool {
+        let pageIds = Set(items.map(\.id))
+        return selectedItems.contains(where: { !pageIds.contains($0) })
     }
 }

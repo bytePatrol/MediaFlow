@@ -56,6 +56,35 @@ async def get_library_items(
     return result
 
 
+@router.get("/item-ids")
+async def get_library_item_ids(
+    search: Optional[str] = None,
+    library_id: Optional[int] = None,
+    resolution: Optional[str] = None,
+    video_codec: Optional[str] = None,
+    audio_codec: Optional[str] = None,
+    hdr_only: bool = False,
+    min_bitrate: Optional[int] = None,
+    max_bitrate: Optional[int] = None,
+    min_size: Optional[int] = None,
+    max_size: Optional[int] = None,
+    session: AsyncSession = Depends(get_session),
+):
+    service = LibraryService(session)
+    return await service.get_item_ids(
+        search=search,
+        library_id=library_id,
+        resolution=resolution,
+        video_codec=video_codec,
+        audio_codec=audio_codec,
+        hdr_only=hdr_only,
+        min_bitrate=min_bitrate,
+        max_bitrate=max_bitrate,
+        min_size=min_size,
+        max_size=max_size,
+    )
+
+
 @router.get("/items/{item_id}", response_model=MediaItemResponse)
 async def get_library_item(item_id: int, session: AsyncSession = Depends(get_session)):
     service = LibraryService(session)

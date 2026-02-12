@@ -28,6 +28,8 @@ class TranscodeConfigViewModel: ObservableObject {
     var mediaItems: [MediaItem] = [] {
         didSet { updateEstimates() }
     }
+    var bulkItemIds: [Int] = []
+    var bulkTotalSize: Int = 0
 
     init(service: BackendService = BackendService()) {
         self.service = service
@@ -90,12 +92,19 @@ class TranscodeConfigViewModel: ObservableObject {
         twoPass = preset.twoPass
     }
 
+    private var effectiveItemIds: [Int] {
+        if mediaItems.isEmpty && !bulkItemIds.isEmpty {
+            return bulkItemIds
+        }
+        return mediaItems.map(\.id)
+    }
+
     func queueJobs() async -> Bool {
         isLoading = true
         defer { isLoading = false }
 
         var request = TranscodeJobCreateRequest(
-            mediaItemIds: mediaItems.map(\.id),
+            mediaItemIds: effectiveItemIds,
             presetId: selectedPreset?.id,
             priority: 0
         )
@@ -115,7 +124,7 @@ class TranscodeConfigViewModel: ObservableObject {
         defer { isLoading = false }
 
         var request = TranscodeJobCreateRequest(
-            mediaItemIds: mediaItems.map(\.id),
+            mediaItemIds: effectiveItemIds,
             presetId: selectedPreset?.id,
             priority: 10
         )
@@ -131,10 +140,16 @@ class TranscodeConfigViewModel: ObservableObject {
     }
 
     var totalSourceSize: Int {
-        mediaItems.reduce(0) { $0 + ($1.fileSize ?? 0) }
+        if mediaItems.isEmpty && !bulkItemIds.isEmpty {
+            return bulkTotalSize
+        }
+        return mediaItems.reduce(0) { $0 + ($1.fileSize ?? 0) }
     }
 
     var sourceItem: MediaItem? {
-        mediaItems.first
+        if !bulkItemIds.isEmpty && mediaItems.isEmpty {
+            return nil
+        }
+        return mediaItems.first
     }
 }

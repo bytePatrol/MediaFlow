@@ -8,6 +8,45 @@ class TranscodeConfigPanel: NSObject, NSWindowDelegate {
     private var onDismissCallback: (() -> Void)?
 
     @MainActor
+    func show(mediaItemIds: [Int], totalSize: Int, onDismiss: @escaping () -> Void = {}) {
+        guard panel == nil else { return }
+        self.onDismissCallback = onDismiss
+
+        let content = TranscodeConfigModal(
+            dismiss: { [weak self] in
+                self?.close()
+            },
+            mediaItems: [],
+            bulkItemIds: mediaItemIds,
+            bulkTotalSize: totalSize
+        )
+
+        let hostingView = NSHostingView(rootView: content)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
+
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.contentView = hostingView
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.isMovableByWindowBackground = true
+        panel.backgroundColor = .clear
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.becomesKeyOnlyIfNeeded = false
+        panel.delegate = self
+        panel.center()
+        panel.isReleasedWhenClosed = false
+        self.panel = panel
+
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    @MainActor
     func show(mediaItems: [MediaItem], onDismiss: @escaping () -> Void = {}) {
         guard panel == nil else { return }
         self.onDismissCallback = onDismiss
@@ -66,6 +105,8 @@ struct TranscodeConfigModal: View {
     var dismiss: () -> Void
     @StateObject private var viewModel = TranscodeConfigViewModel()
     let mediaItems: [MediaItem]
+    var bulkItemIds: [Int] = []
+    var bulkTotalSize: Int = 0
     var onQueue: (() -> Void)? = nil
 
     let resolutionOptions = ["4K", "1080p", "720p", "SD"]
@@ -145,6 +186,24 @@ struct TranscodeConfigModal: View {
                                     InfoRow(label: "Bitrate", value: source.formattedBitrate + " Mbps")
                                     InfoRow(label: "Codec", value: source.codecDisplayName)
                                     InfoRow(label: "Frame Rate", value: source.frameRate.map { String(format: "%.3f fps", $0) } ?? "--")
+
+                                    Divider().background(Color.mfGlassBorder)
+
+                                    HStack {
+                                        VStack(alignment: .leading) {
+                                            Text("Total Size").font(.mfCaption).foregroundColor(.mfTextMuted)
+                                            Text(viewModel.totalSourceSize.formattedFileSize)
+                                                .font(.system(size: 24, weight: .bold, design: .monospaced))
+                                        }
+                                        Spacer()
+                                        Image(systemName: "externaldrive")
+                                            .font(.system(size: 28))
+                                            .foregroundColor(.mfTextMuted.opacity(0.3))
+                                    }
+                                }
+                            } else if !viewModel.bulkItemIds.isEmpty {
+                                VStack(spacing: 12) {
+                                    InfoRow(label: "Items Selected", value: "\(viewModel.bulkItemIds.count)")
 
                                     Divider().background(Color.mfGlassBorder)
 
@@ -426,6 +485,8 @@ struct TranscodeConfigModal: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .task {
             viewModel.mediaItems = mediaItems
+            viewModel.bulkItemIds = bulkItemIds
+            viewModel.bulkTotalSize = bulkTotalSize
             await viewModel.loadPresets()
             await viewModel.loadAvailableServers()
             if let first = viewModel.presets.first {

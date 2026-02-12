@@ -50,6 +50,10 @@ class BackendService {
         return try await client.get("/api/library/items", queryItems: items)
     }
 
+    func getFilteredItemIds(queryItems: [URLQueryItem]) async throws -> FilteredItemIdsResponse {
+        return try await client.get("/api/library/item-ids", queryItems: queryItems)
+    }
+
     func getLibraryStats() async throws -> LibraryStats {
         return try await client.get("/api/library/stats")
     }

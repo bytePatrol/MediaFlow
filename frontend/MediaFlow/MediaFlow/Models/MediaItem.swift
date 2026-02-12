@@ -90,6 +90,12 @@ struct MediaItem: Identifiable, Codable, Hashable {
     }
 }
 
+struct FilteredItemIdsResponse: Codable {
+    let ids: [Int]
+    let total: Int
+    let totalSize: Int
+}
+
 struct PaginatedMediaResponse: Codable {
     let items: [MediaItem]
     let total: Int

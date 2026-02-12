@@ -18,15 +18,16 @@ class LibraryService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_items(self, page: int = 1, page_size: int = 50,
-                        search: Optional[str] = None, library_id: Optional[int] = None,
-                        resolution: Optional[str] = None, video_codec: Optional[str] = None,
-                        audio_codec: Optional[str] = None, hdr_only: bool = False,
-                        min_bitrate: Optional[int] = None, max_bitrate: Optional[int] = None,
-                        min_size: Optional[int] = None, max_size: Optional[int] = None,
-                        sort_by: str = "title", sort_order: str = "asc") -> Dict[str, Any]:
-        query = select(MediaItem)
-
+    def _build_filter_query(self, query, search: Optional[str] = None,
+                            library_id: Optional[int] = None,
+                            resolution: Optional[str] = None,
+                            video_codec: Optional[str] = None,
+                            audio_codec: Optional[str] = None,
+                            hdr_only: bool = False,
+                            min_bitrate: Optional[int] = None,
+                            max_bitrate: Optional[int] = None,
+                            min_size: Optional[int] = None,
+                            max_size: Optional[int] = None):
         if search:
             query = query.where(
                 or_(
@@ -55,6 +56,22 @@ class LibraryService:
             query = query.where(MediaItem.file_size >= min_size)
         if max_size is not None:
             query = query.where(MediaItem.file_size <= max_size)
+        return query
+
+    async def get_items(self, page: int = 1, page_size: int = 50,
+                        search: Optional[str] = None, library_id: Optional[int] = None,
+                        resolution: Optional[str] = None, video_codec: Optional[str] = None,
+                        audio_codec: Optional[str] = None, hdr_only: bool = False,
+                        min_bitrate: Optional[int] = None, max_bitrate: Optional[int] = None,
+                        min_size: Optional[int] = None, max_size: Optional[int] = None,
+                        sort_by: str = "title", sort_order: str = "asc") -> Dict[str, Any]:
+        query = self._build_filter_query(
+            select(MediaItem),
+            search=search, library_id=library_id, resolution=resolution,
+            video_codec=video_codec, audio_codec=audio_codec, hdr_only=hdr_only,
+            min_bitrate=min_bitrate, max_bitrate=max_bitrate,
+            min_size=min_size, max_size=max_size,
+        )
 
         count_query = select(func.count()).select_from(query.subquery())
         total_result = await self.session.execute(count_query)
@@ -91,6 +108,38 @@ class LibraryService:
             "page_size": page_size,
             "total_pages": total_pages,
         }
+
+    async def get_item_ids(self, search: Optional[str] = None,
+                           library_id: Optional[int] = None,
+                           resolution: Optional[str] = None,
+                           video_codec: Optional[str] = None,
+                           audio_codec: Optional[str] = None,
+                           hdr_only: bool = False,
+                           min_bitrate: Optional[int] = None,
+                           max_bitrate: Optional[int] = None,
+                           min_size: Optional[int] = None,
+                           max_size: Optional[int] = None) -> Dict[str, Any]:
+        query = self._build_filter_query(
+            select(MediaItem.id),
+            search=search, library_id=library_id, resolution=resolution,
+            video_codec=video_codec, audio_codec=audio_codec, hdr_only=hdr_only,
+            min_bitrate=min_bitrate, max_bitrate=max_bitrate,
+            min_size=min_size, max_size=max_size,
+        )
+        result = await self.session.execute(query)
+        ids = [row[0] for row in result.all()]
+
+        size_query = self._build_filter_query(
+            select(func.sum(MediaItem.file_size)),
+            search=search, library_id=library_id, resolution=resolution,
+            video_codec=video_codec, audio_codec=audio_codec, hdr_only=hdr_only,
+            min_bitrate=min_bitrate, max_bitrate=max_bitrate,
+            min_size=min_size, max_size=max_size,
+        )
+        size_result = await self.session.execute(size_query)
+        total_size = size_result.scalar() or 0
+
+        return {"ids": ids, "total": len(ids), "total_size": total_size}
 
     async def get_item(self, item_id: int) -> Optional[MediaItemResponse]:
         result = await self.session.execute(
