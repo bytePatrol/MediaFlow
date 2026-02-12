@@ -1,8 +1,16 @@
 import SwiftUI
+import AppKit
 
 @main
 struct MediaFlowApp: App {
     @StateObject private var appState = AppState()
+
+    init() {
+        if let url = Bundle.module.url(forResource: "mediaflow-logo", withExtension: "png"),
+           let image = NSImage(contentsOf: url) {
+            NSApplication.shared.applicationIconImage = image
+        }
+    }
 
     var body: some Scene {
         WindowGroup {

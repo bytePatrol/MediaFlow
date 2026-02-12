@@ -1,4 +1,14 @@
 <p align="center">
+  <img src="frontend/MediaFlow/mediaflow-logo.png" width="128" />
+</p>
+
+<h1 align="center">MediaFlow</h1>
+
+<p align="center">
+  <strong>Intelligent Plex media library optimizer & distributed transcoding engine for macOS</strong>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/macOS-14%2B-000000?style=flat-square&logo=apple&logoColor=white" />
   <img src="https://img.shields.io/badge/Swift-5.9-F05138?style=flat-square&logo=swift&logoColor=white" />
   <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" />
@@ -7,29 +17,28 @@
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" />
 </p>
 
-# MediaFlow
-
-**Intelligent Plex media library optimizer & distributed transcoding engine for macOS.**
-
-MediaFlow connects to your Plex servers, analyzes every file in your library, and gives you the tools to modernize codecs, reclaim storage, and orchestrate transcoding across local and remote hardware — all from a native macOS app with real-time progress.
+<br />
 
 <p align="center">
   <img src="sample_designs/media_library_dashboard/screen.png" width="90%" />
 </p>
 
+<br />
+
+MediaFlow connects to your Plex servers, analyzes every file in your library, and gives you the tools to modernize codecs, reclaim storage, and orchestrate transcoding across local and cloud hardware — all from a native macOS app with real-time progress.
+
 ---
 
-## Why MediaFlow?
+## Highlights
 
-Most Plex users accumulate terabytes of media in mixed formats over years. Old H.264 encodes sit next to modern HEVC files. 4K rips that nobody watches burn storage. Transcoding manually with FFmpeg is tedious and error-prone.
-
-MediaFlow solves this by providing:
-
-- **Full visibility** into your library's codec, resolution, bitrate, and audio breakdown
-- **AI-driven recommendations** that identify exactly which files to transcode and why
-- **Distributed transcoding** across your Mac, VPS instances, or GPU servers — simultaneously
-- **Safety-first workflow** with dry-run simulation, integrity verification, and rollback support
-- **Real-time monitoring** via WebSocket — watch progress bars fill across all workers at once
+- **Full library visibility** — browse every file with codec, resolution, bitrate, HDR, and audio metadata at a glance
+- **AI-driven recommendations** — five analyzers identify exactly which files to transcode and how much space you'll save
+- **Distributed transcoding** — fan out jobs across your Mac, remote Linux servers, and on-demand cloud GPUs simultaneously
+- **Cloud GPU on demand** — deploy Vultr A16/A40 instances with one click, auto-teardown on idle, spend cap enforcement
+- **NVENC hardware encoding** — automatic CPU-to-GPU codec upgrade with 14x speedup (561 FPS vs 40 FPS on hevc_nvenc)
+- **Bulk operations** — select all filtered results across pages and queue hundreds of transcodes in a single action
+- **Real-time monitoring** — WebSocket-driven progress bars, encoding speed, ETA, and server metrics updating live
+- **Safety first** — dry-run simulation, integrity verification, automatic backup, and rollback support
 
 ---
 
@@ -37,20 +46,44 @@ MediaFlow solves this by providing:
 
 ### Library Analysis & Filtering
 
-Connect to one or more Plex servers via OAuth and sync your entire media catalog. Browse every file with full technical metadata:
+Connect to one or more Plex servers via OAuth and sync your entire media catalog. Browse every file with full technical metadata and powerful compound filters.
+
+<p align="center">
+  <img src="sample_designs/media_library_dashboard/screen.png" width="90%" />
+</p>
 
 - **Resolution** (4K, 1080p, 720p, SD) with HDR/SDR indicators
 - **Video codec** (H.264, H.265, AV1, VP9, VC1, MPEG4)
 - **Audio tracks** (Atmos, DTS-X, TrueHD, AC3, AAC, FLAC) with channel counts
 - **Bitrate**, file size, duration, container format, frame rate
-- **Advanced compound filters** — combine resolution + codec + bitrate + library + date range
-- **Saved filter presets** for repeated queries
-- **Bulk selection** — select all filtered results, entire seasons, or whole series
+- **Advanced compound filters** — combine resolution + codec + bitrate + library + size range
+- **Cross-page bulk selection** — "Select All Filtered" grabs every matching item, not just the current page
 - **CSV/JSON export** of any filtered view
+
+### Transcode Configuration
+
+Full control over the encoding pipeline with four built-in presets and complete manual override.
+
+<p align="center">
+  <img src="sample_designs/transcode_configuration/screen.png" width="90%" />
+</p>
+
+- **Video** — resolution scaling, codec selection (H.264, H.265, AV1), CRF or target bitrate
+- **Audio** — copy/passthrough, transcode to AAC/AC3, downmix, multi-track handling
+- **HDR** — preserve HDR10/Dolby Vision or tone-map to SDR
+- **Hardware acceleration** — auto-detect NVENC, QuickSync, VideoToolbox
+- **Two-pass encoding**, custom FFmpeg flags, encoder-specific tuning
+
+| Preset | Use Case |
+|--------|----------|
+| **Balanced** | Good quality-to-size ratio for general use |
+| **Storage Saver** | Maximum compression for bulk libraries |
+| **Mobile Optimized** | 720p / lower bitrate for mobile streaming |
+| **Ultra Fidelity** | Archive-grade quality preservation |
 
 ### Intelligence Engine
 
-Five built-in recommendation analyzers scan your library and surface actionable insights:
+Five built-in recommendation analyzers scan your library and surface actionable insights with estimated savings per file.
 
 | Analyzer | What It Finds |
 |----------|---------------|
@@ -62,101 +95,74 @@ Five built-in recommendation analyzers scan your library and surface actionable 
 
 One-click **batch queue** sends all accepted recommendations straight to the transcode pipeline.
 
-### Transcoding Engine
-
-<p align="center">
-  <img src="sample_designs/transcode_configuration/screen.png" width="90%" />
-</p>
-
-Full control over the encoding pipeline:
-
-- **Video**: Resolution scaling, codec selection (H.264, H.265, AV1), CRF or target bitrate
-- **Audio**: Copy/passthrough, transcode to AAC/AC3, downmix, multi-track handling
-- **HDR**: Preserve HDR10/Dolby Vision or tone-map to SDR
-- **Hardware acceleration**: Auto-detect NVENC, QuickSync, VideoToolbox, AMD VCE
-- **Two-pass encoding**, custom FFmpeg flags, encoder-specific tuning (film, animation, grain)
-
-#### Preset System
-
-Four built-in presets ship out of the box:
-
-| Preset | Use Case |
-|--------|----------|
-| **Balanced** | Good quality-to-size ratio for general use |
-| **Storage Saver** | Maximum compression for bulk libraries |
-| **Mobile Optimized** | 720p / lower bitrate for mobile streaming |
-| **Ultra Fidelity** | Archive-grade quality preservation |
-
-Create, edit, export, and import your own custom presets.
-
-#### Safety Features
-
-- **Dry-run mode** — simulate the entire transcode without touching files
-- **Integrity verification** — FFprobe validates codec, resolution, and duration match post-encode
-- **Automatic backup** — optionally preserve originals before replacement
-- **Rollback** — move originals to a holding area, approve or reject after verification
-
 ### Distributed Worker System
+
+Scale transcoding across multiple machines with intelligent job scheduling.
 
 <p align="center">
   <img src="sample_designs/server_management_&_analytics/screen.png" width="90%" />
 </p>
 
-Scale transcoding across multiple machines:
-
 - **Local macOS worker** — auto-configured, zero setup
 - **Remote Linux servers** — add any Ubuntu/Debian/RHEL VPS via SSH
-- **One-click provisioning** — MediaFlow SSHs into a fresh VPS and installs FFmpeg automatically (static build with libx265, libx264, libsvtav1, aac, opus)
-- **GPU support** — optional NVIDIA driver installation during provisioning
-
-#### Intelligent Job Distribution
-
-The scheduler scores each available worker based on:
-
-- Current CPU/GPU load (35%)
-- Historical transcoding performance (30%)
-- Transfer cost — network speed to/from Plex server (35%)
-
-Jobs are automatically assigned to the best available worker, with manual override always available.
-
-#### Network Benchmarking
-
-Run upload/download speed tests between workers and your Plex server. Results feed into the scheduling algorithm and power per-server transcode time estimates.
+- **One-click provisioning** — MediaFlow SSHs into a fresh server and installs FFmpeg + GPU drivers automatically
+- **Intelligent scheduling** — composite scoring based on CPU/GPU load (35%), historical performance (30%), and transfer cost (35%)
+- **Network benchmarking** — upload/download speed tests feed into the scheduling algorithm
+- **Auto-failover** — detects offline workers and reassigns jobs
 
 #### File Transfer Modes
 
 | Mode | When Used |
 |------|-----------|
 | **Local** | Worker has direct filesystem access |
-| **Mapped paths** | Worker sees Plex files via network mount (NFS/SMB) |
+| **Mapped Paths** | Worker sees Plex files via network mount (NFS/SMB) |
 | **SSH Pull** | Download source from NAS, transcode locally, upload result back |
 
 Auto-detected with fallback chain. Path mappings are configurable per server.
 
-### Real-Time Monitoring
+### Cloud GPU Transcoding
+
+Deploy GPU compute on demand from directly within the app. No manual server setup required.
+
+- **One-click deploy** — pick a GPU plan (Vultr A16/A40), region, and idle timeout
+- **Automatic provisioning** — creates instance, polls until active, SSHs in, installs FFmpeg + tests NVENC
+- **NVENC auto-upgrade** — CPU codecs are automatically swapped to GPU equivalents (`libx265` -> `hevc_nvenc`)
+- **Idle auto-teardown** — configurable timeout destroys instances when no jobs are running
+- **Spend caps** — monthly and per-instance caps with automatic enforcement
+- **Cost tracking** — per-job and per-instance cost recorded with full analytics
+- **vGPU compatibility** — auto-detects NVENC SDK version and falls back to compatible FFmpeg build
+
+| GPU Plan | VRAM | Approx. Cost |
+|----------|------|-------------|
+| A16 1x | 16 GB | ~$0.47/hr |
+| A40 1/3 | 16 GB | ~$0.58/hr |
+| A40 1/2 | 24 GB | ~$0.86/hr |
+
+### Real-Time Processing Queue
+
+Everything updates live via WebSocket — no polling, no refresh.
 
 <p align="center">
   <img src="sample_designs/active_processing_queue/screen.png" width="90%" />
 </p>
 
-Everything updates live via WebSocket:
-
-- **Progress bars** with percentage, encoding speed (FPS), and ETA
-- **Server metrics** — CPU, GPU, RAM, temperature, fan speed per worker
-- **Queue stats** — pending, active, completed counts
-- **Job logs** — expandable FFmpeg output for each job
-- **Server health** — automatic detection of offline workers with failover
+- **Progress bars** with percentage, encoding speed (FPS), and ETA per job
+- **Server metrics** — CPU, GPU, RAM, temperature per worker
+- **Queue stats** — pending, active, completed counts with aggregate FPS
+- **Job logs** — expandable FFmpeg output for debugging
+- **Toast notifications** — real-time alerts for job completion, errors, and cloud events
+- **Health monitoring** — automatic detection of offline workers
 
 ### Analytics Dashboard
 
-Track the impact of your optimization work:
+Track the impact of your optimization work over time.
 
 - **Total storage saved** across all completed transcodes
-- **Codec distribution** before and after (pie charts)
-- **Resolution breakdown** across your library
+- **Codec distribution** breakdown across your library
+- **Resolution breakdown** with HDR counts
 - **Job history** with per-file size reduction and timing
-- **Cost tracking** for cloud VPS workers (hourly rate, total spend, cost per job)
-- **Savings history** over 30/90/365 day windows
+- **Cloud cost tracking** — hourly rate, total spend, cost per job
+- **Savings trends** over 30/90/365 day windows
 
 ---
 
@@ -185,8 +191,8 @@ Track the impact of your optimization work:
 │   SQLite   │  │  Worker Servers  │
 │  (WAL mode)│  │                  │
 │            │  │  Local macOS     │
-│  14 tables │  │  Remote Linux    │
-│            │  │  GPU Instances   │
+│  15 tables │  │  Remote Linux    │
+│            │  │  Cloud GPU (A16) │
 └────────────┘  └──────────────────┘
                        │ SSH
                        ▼
@@ -195,6 +201,20 @@ Track the impact of your optimization work:
                 │  (NAS / VM)  │
                 └──────────────┘
 ```
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | SwiftUI, AppKit (NSPanel), Combine — zero external dependencies |
+| **Backend** | FastAPI, SQLAlchemy 2.0 (async), Pydantic v2, Uvicorn |
+| **Database** | SQLite with WAL mode, async via aiosqlite |
+| **SSH** | asyncssh for remote command execution and SFTP transfers |
+| **Transcoding** | FFmpeg/FFprobe (static builds for remote workers, Jellyfin build for vGPU) |
+| **Cloud** | Vultr v2 REST API (httpx async) for on-demand GPU instances |
+| **Real-time** | Native WebSocket with pub/sub event system |
 
 ---
 
@@ -267,56 +287,30 @@ swift build && .build/debug/MediaFlow
 2. Go to **Settings** and sign in with your Plex account (OAuth)
 3. Your servers and libraries sync automatically
 4. Navigate to the **Library** tab to browse your media
-5. Head to **Servers** to add remote workers or provision a VPS
-
-### Adding a Remote Worker
-
-1. Go to **Servers** → click **Add Server Node**
-2. Enter the hostname, SSH port, and username for your VPS
-3. Click **Add Server** — the server appears with a "pending" status
-4. Click **Install FFmpeg** on the server card
-5. MediaFlow SSHs in, detects the distro, installs FFmpeg, and probes capabilities
-6. Once complete, the server goes "online" and is ready for transcoding jobs
-
-> **Note**: The SSH user must be root or have passwordless sudo configured.
+5. Head to **Servers** to add remote workers or deploy a cloud GPU
 
 ---
 
 ## API
 
-The backend exposes a full REST API on `http://localhost:9876`. Interactive documentation is available at:
+The backend exposes a full REST API on `http://localhost:9876`. Interactive docs available at:
 
 - **Swagger UI**: [http://localhost:9876/docs](http://localhost:9876/docs)
 - **ReDoc**: [http://localhost:9876/redoc](http://localhost:9876/redoc)
 
-Key endpoint groups:
-
 | Prefix | Description |
 |--------|-------------|
 | `/api/plex` | Plex OAuth, server management, library sync |
-| `/api/library` | Media queries, filtering, statistics, export |
+| `/api/library` | Media queries, filtering, statistics, bulk ID lookup, export |
 | `/api/transcode` | Job creation, queue management, dry-run |
 | `/api/presets` | Encoding preset CRUD |
 | `/api/servers` | Worker servers, provisioning, benchmarks |
+| `/api/cloud` | Cloud GPU deploy/teardown, plans, cost tracking, settings |
 | `/api/analytics` | Storage savings, codec distribution, job history |
 | `/api/recommendations` | Intelligent analysis and batch queueing |
-| `/api/settings` | App configuration |
+| `/api/settings` | App configuration, path mappings |
 | `/api/logs` | Log retrieval and system diagnostics |
 | `/ws` | WebSocket for real-time updates |
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | SwiftUI, AppKit (NSPanel), Combine — zero external dependencies |
-| **Backend** | FastAPI, SQLAlchemy 2.0 (async), Pydantic v2, Uvicorn |
-| **Database** | SQLite with WAL mode, async via aiosqlite |
-| **SSH** | asyncssh for remote command execution and SFTP transfers |
-| **Transcoding** | FFmpeg/FFprobe (static builds for remote workers) |
-| **Real-time** | Native WebSocket with pub/sub event system |
-| **HTTP Client** | httpx (async, for Plex API communication) |
 
 ---
 
@@ -329,11 +323,11 @@ MediaFlow/
 │   │   ├── main.py                 # FastAPI app with lifespan
 │   │   ├── config.py               # Environment-based settings
 │   │   ├── database.py             # SQLAlchemy engine + migrations
-│   │   ├── api/                    # Route handlers (13 modules)
-│   │   ├── models/                 # ORM models (14 tables)
+│   │   ├── api/                    # Route handlers (14 modules)
+│   │   ├── models/                 # ORM models (15 tables)
 │   │   ├── schemas/                # Pydantic request/response schemas
-│   │   ├── services/               # Business logic layer
-│   │   ├── workers/                # Background task processors
+│   │   ├── services/               # Business logic + Vultr client
+│   │   ├── workers/                # Background processors (5 workers)
 │   │   └── utils/                  # SSH, FFmpeg, FFprobe, path resolution
 │   ├── requirements.txt
 │   └── .env.example
@@ -344,12 +338,12 @@ MediaFlow/
 │       ├── Models/                 # Codable data models
 │       ├── ViewModels/             # ObservableObject view models
 │       ├── Views/                  # SwiftUI views by feature
-│       ├── Services/               # API client, WebSocket client
+│       ├── Services/               # Backend API + WebSocket clients
 │       ├── Networking/             # HTTP + WebSocket layers
 │       ├── Theme/                  # Color system, typography
 │       ├── Utilities/              # Keychain, logging, debouncing
 │       └── Extensions/             # View + formatter helpers
-├── sample_designs/                 # UI reference mockups
+├── sample_designs/                 # UI reference designs
 ├── run.sh                          # Dev launcher
 └── project_description.md          # Full specification
 ```
@@ -358,13 +352,9 @@ MediaFlow/
 
 ## Configuration
 
-Copy the example environment file and customize as needed:
-
 ```bash
 cp backend/.env.example backend/.env
 ```
-
-Available settings:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -372,6 +362,8 @@ Available settings:
 | `SECRET_KEY` | `change-me-to-a-random-secret-key` | App secret for signing |
 | `CORS_ORIGINS` | `["http://localhost:9876"]` | Allowed CORS origins |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
+
+Cloud GPU and path mapping settings are configured in-app via **Settings**.
 
 ---
 
