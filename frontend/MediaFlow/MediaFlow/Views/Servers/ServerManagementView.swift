@@ -7,6 +7,15 @@ struct ServerManagementView: View {
     @State private var editPanel = EditServerPanel()
     @State private var cloudDeployPanel = CloudDeployPanel()
     @State private var showComparison = false
+    @State private var showDestroyedCloud = false
+
+    private var activeServers: [WorkerServer] {
+        viewModel.servers.filter { !($0.isCloud && ($0.cloudStatus == "destroyed" || $0.cloudStatus == "destroying")) }
+    }
+
+    private var destroyedCloudServers: [WorkerServer] {
+        viewModel.servers.filter { $0.isCloud && ($0.cloudStatus == "destroyed" || $0.cloudStatus == "destroying") }
+    }
 
     var body: some View {
         ScrollView {
@@ -82,41 +91,8 @@ struct ServerManagementView: View {
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 280, maximum: 500))], spacing: 16) {
-                    ForEach(viewModel.servers) { server in
-                        ServerCardView(
-                            server: server,
-                            metrics: viewModel.serverMetrics[server.id],
-                            benchmark: viewModel.benchmarkResults[server.id],
-                            isBenchmarking: viewModel.benchmarkInProgress.contains(server.id),
-                            benchmarkCompleted: viewModel.benchmarkJustCompleted.contains(server.id),
-                            benchmarkError: viewModel.benchmarkError[server.id],
-                            isProvisioning: viewModel.provisionInProgress.contains(server.id),
-                            provisionStep: viewModel.provisionSteps[server.id],
-                            provisionCompleted: viewModel.provisionCompleted.contains(server.id),
-                            provisionError: viewModel.provisionError[server.id],
-                            cloudDeployProgress: viewModel.cloudDeployProgress[server.id],
-                            cloudDeployError: viewModel.cloudDeployError[server.id],
-                            onEdit: {
-                                editPanel.show(
-                                    server: server,
-                                    onSave: { request in
-                                        Task { await viewModel.updateServer(server.id, request: request) }
-                                    },
-                                    onDelete: {
-                                        Task { await viewModel.deleteServer(server) }
-                                    }
-                                )
-                            },
-                            onBenchmark: {
-                                Task { await viewModel.triggerBenchmark(for: server) }
-                            },
-                            onProvision: {
-                                Task { await viewModel.triggerProvision(for: server) }
-                            },
-                            onTeardown: {
-                                Task { await viewModel.teardownCloudServer(server) }
-                            }
-                        )
+                    ForEach(activeServers) { server in
+                        serverCard(for: server)
                     }
 
                     // Add New Placeholder
@@ -151,6 +127,41 @@ struct ServerManagementView: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                // Destroyed Cloud Instances (collapsed by default)
+                if !destroyedCloudServers.isEmpty {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showDestroyedCloud.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: showDestroyedCloud ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.mfTextMuted)
+                            Text("Destroyed Cloud Instances")
+                                .font(.mfBodyMedium)
+                                .foregroundColor(.mfTextSecondary)
+                            Text("\(destroyedCloudServers.count)")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.mfTextMuted)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.mfSurfaceLight)
+                                .clipShape(Capsule())
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    if showDestroyedCloud {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 280, maximum: 500))], spacing: 16) {
+                            ForEach(destroyedCloudServers) { server in
+                                serverCard(for: server)
+                            }
+                        }
+                    }
+                }
             }
             .padding(24)
         }
@@ -170,5 +181,43 @@ struct ServerManagementView: View {
             ServerComparisonView(servers: viewModel.servers, metrics: viewModel.serverMetrics, benchmarks: viewModel.benchmarkResults)
                 .frame(minWidth: 800, minHeight: 500)
         }
+    }
+
+    @ViewBuilder
+    private func serverCard(for server: WorkerServer) -> some View {
+        ServerCardView(
+            server: server,
+            metrics: viewModel.serverMetrics[server.id],
+            benchmark: viewModel.benchmarkResults[server.id],
+            isBenchmarking: viewModel.benchmarkInProgress.contains(server.id),
+            benchmarkCompleted: viewModel.benchmarkJustCompleted.contains(server.id),
+            benchmarkError: viewModel.benchmarkError[server.id],
+            isProvisioning: viewModel.provisionInProgress.contains(server.id),
+            provisionStep: viewModel.provisionSteps[server.id],
+            provisionCompleted: viewModel.provisionCompleted.contains(server.id),
+            provisionError: viewModel.provisionError[server.id],
+            cloudDeployProgress: viewModel.cloudDeployProgress[server.id],
+            cloudDeployError: viewModel.cloudDeployError[server.id],
+            onEdit: {
+                editPanel.show(
+                    server: server,
+                    onSave: { request in
+                        Task { await viewModel.updateServer(server.id, request: request) }
+                    },
+                    onDelete: {
+                        Task { await viewModel.deleteServer(server) }
+                    }
+                )
+            },
+            onBenchmark: {
+                Task { await viewModel.triggerBenchmark(for: server) }
+            },
+            onProvision: {
+                Task { await viewModel.triggerProvision(for: server) }
+            },
+            onTeardown: {
+                Task { await viewModel.teardownCloudServer(server) }
+            }
+        )
     }
 }

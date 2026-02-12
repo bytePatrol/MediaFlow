@@ -15,6 +15,17 @@ struct TranscodeJobCardView: View {
         }
     }
 
+    private var thumbnailPlaceholder: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.mfSurfaceLight)
+            .frame(width: 160, height: 96)
+            .overlay(
+                Image(systemName: "film")
+                    .font(.system(size: 20))
+                    .foregroundColor(.mfTextMuted.opacity(0.5))
+            )
+    }
+
     private var phaseDescription: String? {
         if job.status == "transferring", let tp = transferProgress {
             let dir = tp.direction == "download" ? "Downloading" : "Uploading"
@@ -32,28 +43,39 @@ struct TranscodeJobCardView: View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 // Thumbnail
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.mfSurfaceLight)
+                ZStack(alignment: .bottomTrailing) {
+                    if let mediaItemId = job.mediaItemId {
+                        AsyncImage(url: URL(string: "http://localhost:9876/api/library/thumb/\(mediaItemId)")) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            case .failure:
+                                thumbnailPlaceholder
+                            case .empty:
+                                thumbnailPlaceholder
+                                    .overlay(ProgressView().scaleEffect(0.5))
+                            @unknown default:
+                                thumbnailPlaceholder
+                            }
+                        }
                         .frame(width: 160, height: 96)
-
-                    if job.status == "completed" {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(.mfSuccess)
-                    } else if job.status == "failed" {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(.mfError)
-                    } else if job.status == "transferring" {
-                        Image(systemName: "arrow.down.circle")
-                            .font(.system(size: 24))
-                            .foregroundColor(.mfPrimary)
-                            .symbolEffect(.pulse)
+                        .clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     } else {
-                        Image(systemName: "film")
-                            .font(.system(size: 20))
-                            .foregroundColor(.mfTextMuted.opacity(0.5))
+                        thumbnailPlaceholder
+                    }
+
+                    // Status badge overlay
+                    if job.status == "completed" || job.status == "failed" {
+                        Image(systemName: job.status == "completed" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(job.status == "completed" ? .mfSuccess : .mfError)
+                            .padding(4)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                            .padding(4)
                     }
                 }
 
