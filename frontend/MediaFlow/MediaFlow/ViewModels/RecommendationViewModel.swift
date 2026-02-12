@@ -36,6 +36,15 @@ class RecommendationViewModel: ObservableObject {
         isGenerating = false
     }
 
+    func queueRecommendation(_ id: Int) async {
+        do {
+            let _ = try await service.batchQueueRecommendations(ids: [id])
+            await loadRecommendations()
+        } catch {
+            print("Failed to queue recommendation: \(error)")
+        }
+    }
+
     func dismissRecommendation(_ id: Int) async {
         let client = APIClient(baseURL: service.client.baseURL)
         struct Empty: Codable {}

@@ -220,30 +220,42 @@ class RecommendationService:
         return count
 
     async def batch_queue(self, request: BatchQueueRequest) -> Dict[str, Any]:
+        from app.services.transcode_service import TranscodeService
+        from app.schemas.transcode import TranscodeJobCreate
+
         result = await self.session.execute(
             select(Recommendation).where(Recommendation.id.in_(request.recommendation_ids))
         )
         recs = result.scalars().all()
 
-        jobs_created = 0
+        media_ids = []
+        preset_id = request.preset_id
         for rec in recs:
             if rec.media_item_id:
-                job = TranscodeJob(
-                    media_item_id=rec.media_item_id,
-                    preset_id=request.preset_id or rec.suggested_preset_id,
-                    status="queued",
-                    priority=0,
-                )
-                media_result = await self.session.execute(
-                    select(MediaItem).where(MediaItem.id == rec.media_item_id)
-                )
-                media = media_result.scalar_one_or_none()
-                if media:
-                    job.source_path = media.file_path
-                    job.source_size = media.file_size
-                self.session.add(job)
+                media_ids.append(rec.media_item_id)
+                if not preset_id and rec.suggested_preset_id:
+                    preset_id = rec.suggested_preset_id
                 rec.is_actioned = True
-                jobs_created += 1
 
-        await self.session.commit()
-        return {"status": "queued", "jobs_created": jobs_created}
+        # Fall back to the first available preset (Balanced) if none specified
+        if not preset_id:
+            from app.models.transcode_preset import TranscodePreset
+            default_result = await self.session.execute(
+                select(TranscodePreset).order_by(TranscodePreset.id.asc()).limit(1)
+            )
+            default_preset = default_result.scalar_one_or_none()
+            if default_preset:
+                preset_id = default_preset.id
+
+        if not media_ids:
+            await self.session.commit()
+            return {"status": "queued", "jobs_created": 0}
+
+        transcode_service = TranscodeService(self.session)
+        create_request = TranscodeJobCreate(
+            media_item_ids=media_ids,
+            preset_id=preset_id,
+        )
+        jobs = await transcode_service.create_jobs(create_request)
+
+        return {"status": "queued", "jobs_created": len(jobs)}

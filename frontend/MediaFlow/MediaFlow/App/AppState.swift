@@ -1,6 +1,26 @@
 import SwiftUI
 import Combine
 
+struct ToastItem: Identifiable {
+    let id = UUID()
+    let message: String
+    let icon: String
+    let style: ToastStyle
+
+    enum ToastStyle {
+        case error, warning, success, info
+
+        var color: Color {
+            switch self {
+            case .error: return .mfError
+            case .warning: return .mfWarning
+            case .success: return .mfSuccess
+            case .info: return .mfPrimary
+            }
+        }
+    }
+}
+
 @MainActor
 class AppState: ObservableObject {
     @Published var isConnected: Bool = false
@@ -15,6 +35,7 @@ class AppState: ObservableObject {
     @Published var errorMessage: String?
     @Published var showError: Bool = false
     @Published var showAddServer: Bool = false
+    @Published var toasts: [ToastItem] = []
 
     private var healthCheckTimer: Timer?
 
@@ -44,6 +65,19 @@ class AppState: ObservableObject {
     func showError(_ message: String) {
         errorMessage = message
         showError = true
+    }
+
+    func showToast(_ message: String, icon: String = "exclamationmark.triangle.fill", style: ToastItem.ToastStyle = .error, duration: TimeInterval = 12) {
+        let toast = ToastItem(message: message, icon: icon, style: style)
+        toasts.append(toast)
+        Task {
+            try? await Task.sleep(for: .seconds(duration))
+            toasts.removeAll { $0.id == toast.id }
+        }
+    }
+
+    func dismissToast(_ id: UUID) {
+        toasts.removeAll { $0.id == id }
     }
 }
 

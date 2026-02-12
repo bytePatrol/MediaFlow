@@ -47,9 +47,9 @@ struct ProcessingQueueView: View {
                             .tracking(1)
                         HStack(spacing: 4) {
                             Circle()
-                                .fill(Color.mfSuccess)
+                                .fill(viewModel.queueStatusColor)
                                 .frame(width: 6, height: 6)
-                            Text("Processing")
+                            Text(viewModel.queueStatusLabel)
                                 .font(.system(size: 13, weight: .medium))
                         }
                     }
@@ -103,6 +103,26 @@ struct ProcessingQueueView: View {
             .padding(20)
             .background(Color.mfSurface)
             .overlay(Rectangle().frame(height: 1).foregroundColor(.mfGlassBorder), alignment: .bottom)
+
+            // No workers warning
+            if viewModel.hasWorkerIssue {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.mfWarning)
+                    Text("No worker servers are online — queued jobs cannot be processed.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.mfWarning)
+                    Spacer()
+                    Text("Go to Settings → Servers to add or enable a worker.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.mfTextMuted)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(Color.mfWarning.opacity(0.08))
+                .overlay(Rectangle().frame(height: 1).foregroundColor(.mfWarning.opacity(0.2)), alignment: .bottom)
+            }
 
             // Main content
             HSplitView {

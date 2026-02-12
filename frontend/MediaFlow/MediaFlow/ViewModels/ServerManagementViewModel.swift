@@ -16,6 +16,9 @@ class ServerManagementViewModel: ObservableObject {
     @Published var provisionCompleted: Set<Int> = []
     @Published var provisionError: [Int: String] = [:]
     @Published var cloudDeployProgress: [Int: CloudDeployProgress] = [:]
+    @Published var cloudDeployError: [Int: String] = [:]
+
+    var onCloudDeployFailed: ((String) -> Void)?
 
     private let service: BackendService
     private var wsClient: WebSocketClient?
@@ -291,11 +294,12 @@ class ServerManagementViewModel: ObservableObject {
                   let serverId = message.data["server_id"]?.intValue else { return }
             self.cloudDeployProgress.removeValue(forKey: serverId)
             let errorMsg = message.data["error"]?.stringValue ?? "Cloud deploy failed"
-            self.provisionError[serverId] = errorMsg
+            self.cloudDeployError[serverId] = errorMsg
+            self.onCloudDeployFailed?(errorMsg)
             Task {
                 await self.loadServers()
-                try? await Task.sleep(for: .seconds(8))
-                self.provisionError.removeValue(forKey: serverId)
+                try? await Task.sleep(for: .seconds(15))
+                self.cloudDeployError.removeValue(forKey: serverId)
             }
         }
 

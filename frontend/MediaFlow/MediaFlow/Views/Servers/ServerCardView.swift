@@ -12,6 +12,7 @@ struct ServerCardView: View {
     var provisionCompleted: Bool = false
     var provisionError: String? = nil
     var cloudDeployProgress: CloudDeployProgress? = nil
+    var cloudDeployError: String? = nil
     var onEdit: (() -> Void)? = nil
     var onBenchmark: (() -> Void)? = nil
     var onProvision: (() -> Void)? = nil
@@ -207,6 +208,27 @@ struct ServerCardView: View {
                     .background(Color.mfSuccess.opacity(0.05))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.mfSuccess.opacity(0.15)))
+                } else if let error = cloudDeployError {
+                    // Cloud deploy failed
+                    VStack(spacing: 8) {
+                        Image(systemName: "cloud.bolt.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.mfError)
+                        Text("CLOUD DEPLOY FAILED")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.mfError)
+                        Text(error)
+                            .font(.system(size: 10))
+                            .foregroundColor(.mfTextSecondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                            .padding(.horizontal, 8)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.mfError.opacity(0.05))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.mfError.opacity(0.1)))
                 } else if let error = provisionError {
                     // Provision failed
                     VStack(spacing: 8) {

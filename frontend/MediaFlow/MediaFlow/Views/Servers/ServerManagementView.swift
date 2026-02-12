@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ServerManagementView: View {
+    @EnvironmentObject var appState: AppState
     @StateObject private var viewModel = ServerManagementViewModel()
     @State private var addPanel = AddServerPanel()
     @State private var editPanel = EditServerPanel()
@@ -94,6 +95,7 @@ struct ServerManagementView: View {
                             provisionCompleted: viewModel.provisionCompleted.contains(server.id),
                             provisionError: viewModel.provisionError[server.id],
                             cloudDeployProgress: viewModel.cloudDeployProgress[server.id],
+                            cloudDeployError: viewModel.cloudDeployError[server.id],
                             onEdit: {
                                 editPanel.show(
                                     server: server,
@@ -154,6 +156,9 @@ struct ServerManagementView: View {
         }
         .background(Color.mfBackground)
         .task {
+            viewModel.onCloudDeployFailed = { [weak appState] errorMsg in
+                appState?.showToast("Cloud GPU deploy failed: \(errorMsg)", icon: "cloud.bolt", style: .error)
+            }
             await viewModel.loadServers()
             await viewModel.loadBenchmarks()
             viewModel.connectWebSocket()

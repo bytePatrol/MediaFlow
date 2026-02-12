@@ -57,6 +57,33 @@ class TranscodeViewModel: ObservableObject {
         }
     }
 
+    var hasWorkerIssue: Bool {
+        let workers = queueStats?.availableWorkers ?? 0
+        let queued = queueStats?.totalQueued ?? 0
+        let active = queueStats?.totalActive ?? 0
+        return workers == 0 && (queued > 0 || active > 0)
+    }
+
+    var queueStatusColor: Color {
+        let workers = queueStats?.availableWorkers ?? 0
+        let queued = queueStats?.totalQueued ?? 0
+        let active = queueStats?.totalActive ?? 0
+        if workers == 0 && (queued > 0 || active > 0) { return .mfWarning }
+        if active > 0 { return .mfSuccess }
+        if queued > 0 { return .mfPrimary }
+        return .mfTextMuted
+    }
+
+    var queueStatusLabel: String {
+        let workers = queueStats?.availableWorkers ?? 0
+        let queued = queueStats?.totalQueued ?? 0
+        let active = queueStats?.totalActive ?? 0
+        if workers == 0 && (queued > 0 || active > 0) { return "No Workers" }
+        if active > 0 { return "Processing" }
+        if queued > 0 { return "Waiting" }
+        return "Idle"
+    }
+
     init(service: BackendService = BackendService()) {
         self.service = service
     }

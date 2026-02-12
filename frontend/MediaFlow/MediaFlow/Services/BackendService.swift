@@ -180,6 +180,16 @@ class BackendService {
     func getRecommendationSummary() async throws -> RecommendationSummary {
         return try await client.get("/api/recommendations/summary")
     }
+
+    func batchQueueRecommendations(ids: [Int], presetId: Int? = nil) async throws -> BatchQueueResponse {
+        struct BatchQueueRequest: Codable { let recommendationIds: [Int]; let presetId: Int? }
+        return try await client.post("/api/recommendations/batch-queue", body: BatchQueueRequest(recommendationIds: ids, presetId: presetId))
+    }
+}
+
+struct BatchQueueResponse: Codable {
+    let status: String
+    let jobsCreated: Int
 }
 
 struct SyncResponse: Codable {

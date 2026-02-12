@@ -73,4 +73,5 @@ struct QueueStats: Codable {
     let totalFailed: Int
     let aggregateFps: Double
     let estimatedTotalTime: Int
+    let availableWorkers: Int?
 }

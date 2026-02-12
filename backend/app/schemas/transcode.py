@@ -113,6 +113,7 @@ class QueueStatsResponse(BaseModel):
     total_failed: int
     aggregate_fps: float
     estimated_total_time: int
+    available_workers: int = 0
 
 
 class DryRunResponse(BaseModel):

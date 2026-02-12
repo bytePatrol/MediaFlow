@@ -89,6 +89,8 @@ struct RecommendationsView: View {
                     ForEach(viewModel.recommendations) { rec in
                         RecommendationCardView(recommendation: rec, onDismiss: {
                             Task { await viewModel.dismissRecommendation(rec.id) }
+                        }, onQueue: {
+                            Task { await viewModel.queueRecommendation(rec.id) }
                         })
                     }
 
