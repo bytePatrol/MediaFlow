@@ -106,6 +106,50 @@ class TranscodeService:
         _, worker_id, mode, resolved_path = candidates[0]
         return (worker_id, mode, resolved_path)
 
+    # CPU → NVENC GPU codec mapping
+    NVENC_CODEC_MAP = {
+        "libx265": "hevc_nvenc",
+        "libx264": "h264_nvenc",
+        "libsvtav1": "av1_nvenc",
+    }
+
+    # NVENC-compatible tune values
+    NVENC_TUNES = {"hq", "ll", "ull", "lossless"}
+
+    async def _maybe_upgrade_to_nvenc(self, worker_id: int, config: dict) -> dict:
+        """Upgrade CPU codec to NVENC equivalent if assigned worker has GPU."""
+        result = await self.session.execute(
+            select(WorkerServer).where(WorkerServer.id == worker_id)
+        )
+        worker = result.scalar_one_or_none()
+        if not worker:
+            return config
+
+        hw_types = worker.hw_accel_types or []
+        if "nvenc" not in hw_types:
+            return config
+
+        video_codec = config.get("video_codec", "libx265")
+        nvenc_codec = self.NVENC_CODEC_MAP.get(video_codec)
+        if not nvenc_codec:
+            return config
+
+        # Copy config to avoid mutating the original across loop iterations
+        config = {**config}
+        logger.info(
+            "Auto-upgrading codec %s → %s for worker %s (GPU detected)",
+            video_codec, nvenc_codec, worker.name,
+        )
+        config["video_codec"] = nvenc_codec
+        config["hw_accel"] = "nvenc"
+
+        # Strip incompatible encoder_tune values
+        tune = config.get("encoder_tune")
+        if tune and tune not in self.NVENC_TUNES:
+            config.pop("encoder_tune", None)
+
+        return config
+
     async def create_jobs(self, request: TranscodeJobCreate) -> List[TranscodeJob]:
         preset = None
         if request.preset_id:
@@ -163,6 +207,10 @@ class TranscodeService:
                 plex_server_has_ssh=plex_server_has_ssh,
                 preferred_worker_id=request.preferred_worker_id,
             )
+
+            # Auto-upgrade to GPU encoding if worker has NVENC capability
+            if worker_id:
+                config = await self._maybe_upgrade_to_nvenc(worker_id, config)
 
             # Build ffmpeg command using the resolved worker path
             effective_input = worker_input_path or media.file_path
@@ -308,6 +356,12 @@ class TranscodeService:
         aggregate_fps = sum(j.current_fps or 0 for j in active_jobs)
         total_eta = sum(j.eta_seconds or 0 for j in active_jobs)
 
+        worker_result = await self.session.execute(
+            select(func.count()).select_from(WorkerServer)
+            .where(WorkerServer.is_enabled == True, WorkerServer.status == "online")
+        )
+        available_workers = worker_result.scalar() or 0
+
         return QueueStatsResponse(
             total_queued=counts["queued"],
             total_active=len(active_jobs),
@@ -315,6 +369,7 @@ class TranscodeService:
             total_failed=counts["failed"],
             aggregate_fps=aggregate_fps,
             estimated_total_time=total_eta,
+            available_workers=available_workers,
         )
 
     async def dry_run(self, media_item_id: int, preset_id: Optional[int] = None,

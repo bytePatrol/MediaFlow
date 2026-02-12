@@ -26,7 +26,7 @@ CODEC_MAP = {
 }
 
 HW_ACCEL_INPUT = {
-    "nvenc": ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"],
+    "nvenc": ["-hwaccel", "cuda"],
     "videotoolbox": ["-hwaccel", "videotoolbox"],
     "qsv": ["-hwaccel", "qsv"],
 }
@@ -85,10 +85,15 @@ class FFmpegCommandBuilder:
                     idx = args.index(current_vf)
                     args[idx] = f"{current_vf},scale={scale}:flags=lanczos"
 
+        is_nvenc = codec_key.endswith("_nvenc")
+
         bitrate_mode = self.config.get("bitrate_mode", "crf")
         if bitrate_mode == "crf":
             crf = self.config.get("crf_value", 23)
-            args.extend(["-crf", str(crf)])
+            if is_nvenc:
+                args.extend(["-rc", "vbr", "-cq", str(crf), "-b:v", "0"])
+            else:
+                args.extend(["-crf", str(crf)])
         elif bitrate_mode == "cbr":
             bitrate = self.config.get("target_bitrate", "8M")
             args.extend(["-b:v", bitrate, "-maxrate", bitrate, "-bufsize", f"{int(bitrate.rstrip('MmKk')) * 2}M"])
@@ -96,12 +101,21 @@ class FFmpegCommandBuilder:
             bitrate = self.config.get("target_bitrate", "8M")
             args.extend(["-b:v", bitrate])
 
-        tune = self.config.get("encoder_tune")
-        if tune:
-            args.extend(["-tune", tune])
+        if is_nvenc:
+            args.extend(["-preset", "p5"])
+            nvenc_tunes = {"hq", "ll", "ull", "lossless"}
+            tune = self.config.get("encoder_tune")
+            if tune and tune in nvenc_tunes:
+                args.extend(["-tune", tune])
+            else:
+                args.extend(["-tune", "hq"])
+        else:
+            tune = self.config.get("encoder_tune")
+            if tune:
+                args.extend(["-tune", tune])
 
         two_pass = self.config.get("two_pass", False)
-        if two_pass and "nvenc" not in codec_key:
+        if two_pass and not is_nvenc:
             pass
 
         return args
