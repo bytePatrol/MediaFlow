@@ -2,6 +2,8 @@ from pydantic import BaseModel
 from typing import Optional, List, Any
 from datetime import datetime
 
+from app.schemas.tag import TagBrief
+
 
 class MediaItemResponse(BaseModel):
     id: int
@@ -34,6 +36,7 @@ class MediaItemResponse(BaseModel):
     genres: Optional[List[str]] = None
     directors: Optional[List[str]] = None
     library_title: Optional[str] = None
+    tags: Optional[List[TagBrief]] = None
 
     model_config = {"from_attributes": True}
 

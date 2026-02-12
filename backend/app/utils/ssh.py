@@ -4,6 +4,19 @@ from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
+# SFTP tuning — default asyncssh block_size is 16KB which causes excessive round trips.
+# 256KB blocks reduce SFTP request count 16x and dramatically improve throughput.
+SFTP_BLOCK_SIZE = 128 * 1024      # 128 KB per SFTP request (default is 16 KB; 256 KB exceeds some servers' max packet size)
+TRANSFER_CHUNK_SIZE = 4 * 1024 * 1024  # 4 MB read/write chunks
+
+# Prefer hardware-accelerated ciphers (AES-GCM uses AES-NI on modern CPUs)
+_PREFERRED_CIPHERS = [
+    "aes128-gcm@openssh.com",
+    "aes256-gcm@openssh.com",
+    "aes128-ctr",
+    "aes256-ctr",
+]
+
 
 class SSHClient:
     def __init__(self, hostname: str, port: int = 22,
@@ -21,6 +34,7 @@ class SSHClient:
             "port": self.port,
             "known_hosts": None,
             "login_timeout": 15,
+            "encryption_algs": _PREFERRED_CIPHERS,
         }
         if self.username:
             kwargs["username"] = self.username
@@ -193,6 +207,7 @@ class SSHClient:
                 async with conn.start_sftp_client() as sftp:
                     try:
                         await sftp.put(local_path, remote_path,
+                                       block_size=SFTP_BLOCK_SIZE,
                                        progress_handler=progress_callback)
                     except OSError as e:
                         if e.errno == 45:  # "Operation not supported" — SMB/NFS mounts
@@ -210,13 +225,12 @@ class SSHClient:
         """Upload a file by reading chunks manually — works on SMB/NFS mounts."""
         import os
         file_size = os.path.getsize(local_path)
-        chunk_size = 1024 * 1024  # 1 MB
         transferred = 0
 
-        async with sftp.open(remote_path, "wb") as remote_file:
+        async with sftp.open(remote_path, "wb", block_size=SFTP_BLOCK_SIZE) as remote_file:
             with open(local_path, "rb") as local_file:
                 while True:
-                    chunk = local_file.read(chunk_size)
+                    chunk = local_file.read(TRANSFER_CHUNK_SIZE)
                     if not chunk:
                         break
                     await remote_file.write(chunk)
@@ -227,6 +241,75 @@ class SSHClient:
                         except Exception:
                             pass
 
+    async def relay_to(self, src_path: str, dst_client: "SSHClient", dst_path: str,
+                       total_size: int = 0, progress_callback=None) -> bool:
+        """Stream a file from this SSH host to another SSH host without local staging.
+
+        Uses pipelined reads/writes — the reader fills a queue while the writer
+        drains it concurrently, keeping both connections saturated.
+        """
+        try:
+            import asyncssh
+            src_kwargs = self._connect_kwargs()
+            dst_kwargs = dst_client._connect_kwargs()
+
+            async with asyncssh.connect(**src_kwargs) as src_conn:
+                async with src_conn.start_sftp_client() as src_sftp:
+                    if total_size <= 0:
+                        try:
+                            stat = await src_sftp.stat(src_path)
+                            total_size = stat.size or 0
+                        except Exception:
+                            pass
+
+                    async with asyncssh.connect(**dst_kwargs) as dst_conn:
+                        async with dst_conn.start_sftp_client() as dst_sftp:
+                            transferred = 0
+                            queue: asyncio.Queue = asyncio.Queue(maxsize=8)
+                            read_error = None
+
+                            async def _reader():
+                                nonlocal read_error
+                                try:
+                                    async with src_sftp.open(src_path, "rb",
+                                                             block_size=SFTP_BLOCK_SIZE) as src_file:
+                                        while True:
+                                            chunk = await src_file.read(TRANSFER_CHUNK_SIZE)
+                                            if not chunk:
+                                                await queue.put(None)  # sentinel
+                                                break
+                                            await queue.put(chunk)
+                                except Exception as e:
+                                    read_error = e
+                                    await queue.put(None)
+
+                            async def _writer():
+                                nonlocal transferred
+                                async with dst_sftp.open(dst_path, "wb",
+                                                         block_size=SFTP_BLOCK_SIZE) as dst_file:
+                                    while True:
+                                        chunk = await queue.get()
+                                        if chunk is None:
+                                            break
+                                        await dst_file.write(chunk)
+                                        transferred += len(chunk)
+                                        if progress_callback:
+                                            try:
+                                                progress_callback(src_path, dst_path,
+                                                                  transferred, total_size)
+                                            except Exception:
+                                                pass
+
+                            await asyncio.gather(_reader(), _writer())
+
+                            if read_error:
+                                raise read_error
+
+            return True
+        except Exception as e:
+            logger.error(f"Relay failed ({self.hostname} -> {dst_client.hostname}): {e}")
+            return False
+
     async def download_file(self, remote_path: str, local_path: str,
                             progress_callback=None) -> bool:
         try:
@@ -236,6 +319,7 @@ class SSHClient:
             async with asyncssh.connect(**kwargs) as conn:
                 async with conn.start_sftp_client() as sftp:
                     await sftp.get(remote_path, local_path,
+                                   block_size=SFTP_BLOCK_SIZE,
                                    progress_handler=progress_callback)
             return True
         except Exception as e:

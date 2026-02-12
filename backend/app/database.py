@@ -66,6 +66,7 @@ async def _run_migrations(conn):
         ("worker_servers", "cloud_auto_teardown", "BOOLEAN DEFAULT 1"),
         ("worker_servers", "cloud_idle_minutes", "INTEGER DEFAULT 30"),
         ("worker_servers", "cloud_status", "VARCHAR(20)"),
+        ("transcode_jobs", "status_detail", "VARCHAR(500)"),
     ]
     for table, column, col_type in migrations:
         try:

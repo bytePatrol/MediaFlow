@@ -7,6 +7,7 @@ struct TranscodeJob: Identifiable, Codable {
     var workerServerId: Int?
     var configJson: [String: AnyCodable]?
     var status: String
+    var statusDetail: String?
     var priority: Int = 0
     var progressPercent: Double = 0.0
     var currentFps: Double?

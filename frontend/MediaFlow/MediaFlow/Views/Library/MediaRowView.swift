@@ -33,6 +33,19 @@ struct MediaRowView: View {
                         Text("•")
                         Text(size.formattedFileSize)
                     }
+
+                    if let tags = item.tags, !tags.isEmpty {
+                        Text("•")
+                        ForEach(tags) { tag in
+                            Text(tag.name)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Color(hex: tag.color).opacity(0.7))
+                                .clipShape(Capsule())
+                        }
+                    }
                 }
                 .font(.system(size: 11))
                 .foregroundColor(.mfTextMuted)

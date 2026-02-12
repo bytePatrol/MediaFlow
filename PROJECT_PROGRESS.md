@@ -479,8 +479,8 @@ asyncssh>=2.14.0
 - ~~NVENC auto-upgrade~~ — **DONE.** CPU codec → GPU codec when worker has NVENC capability.
 
 ### High Priority
-1. **Path mappings UI** — Currently set via direct DB insert. Need a Settings panel for configuring NAS path mappings (`source_prefix` → `target_prefix`).
-2. **Bulk transcode from library** — Allow selecting multiple items in the library browser and queueing them for transcode in one action (the recommendation batch-queue path works, but direct library selection → transcode is not yet wired).
+1. ~~**Path mappings UI**~~ — **DONE** (2026-02-12). Settings → Storage tab with source/local path mapping CRUD.
+2. ~~**Bulk transcode from library**~~ — **DONE** (2026-02-12, commit `58dfd69`). Cross-page select-all-filtered support.
 3. ~~**Cloud worker auto-deploy on queue**~~ — **DONE** (2026-02-12). See below.
 
 ### Medium Priority

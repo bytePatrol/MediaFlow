@@ -32,6 +32,7 @@ async def get_library_items(
     max_bitrate: Optional[int] = None,
     min_size: Optional[int] = None,
     max_size: Optional[int] = None,
+    tags: Optional[str] = None,
     sort_by: str = "title",
     sort_order: str = "asc",
     session: AsyncSession = Depends(get_session),
@@ -50,6 +51,7 @@ async def get_library_items(
         max_bitrate=max_bitrate,
         min_size=min_size,
         max_size=max_size,
+        tags=tags,
         sort_by=sort_by,
         sort_order=sort_order,
     )
@@ -68,6 +70,7 @@ async def get_library_item_ids(
     max_bitrate: Optional[int] = None,
     min_size: Optional[int] = None,
     max_size: Optional[int] = None,
+    tags: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
 ):
     service = LibraryService(session)
@@ -82,6 +85,7 @@ async def get_library_item_ids(
         max_bitrate=max_bitrate,
         min_size=min_size,
         max_size=max_size,
+        tags=tags,
     )
 
 

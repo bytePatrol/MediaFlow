@@ -7,9 +7,11 @@ from sqlalchemy import select, func, desc, asc, or_
 from sqlalchemy.orm import joinedload
 
 from app.models.media_item import MediaItem
+from app.models.custom_tag import MediaTag, CustomTag
 from app.models.plex_library import PlexLibrary
 from app.models.plex_server import PlexServer
 from app.schemas.media import MediaItemResponse, LibraryStatsResponse, LibrarySectionResponse
+from app.schemas.tag import TagBrief
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,8 @@ class LibraryService:
                             min_bitrate: Optional[int] = None,
                             max_bitrate: Optional[int] = None,
                             min_size: Optional[int] = None,
-                            max_size: Optional[int] = None):
+                            max_size: Optional[int] = None,
+                            tags: Optional[str] = None):
         if search:
             query = query.where(
                 or_(
@@ -56,6 +59,17 @@ class LibraryService:
             query = query.where(MediaItem.file_size >= min_size)
         if max_size is not None:
             query = query.where(MediaItem.file_size <= max_size)
+        if tags:
+            tag_ids = [int(t.strip()) for t in tags.split(",") if t.strip()]
+            if tag_ids:
+                query = query.where(
+                    MediaItem.id.in_(
+                        select(MediaTag.media_item_id)
+                        .where(MediaTag.tag_id.in_(tag_ids))
+                        .group_by(MediaTag.media_item_id)
+                        .having(func.count(func.distinct(MediaTag.tag_id)) == len(tag_ids))
+                    )
+                )
         return query
 
     async def get_items(self, page: int = 1, page_size: int = 50,
@@ -64,13 +78,14 @@ class LibraryService:
                         audio_codec: Optional[str] = None, hdr_only: bool = False,
                         min_bitrate: Optional[int] = None, max_bitrate: Optional[int] = None,
                         min_size: Optional[int] = None, max_size: Optional[int] = None,
+                        tags: Optional[str] = None,
                         sort_by: str = "title", sort_order: str = "asc") -> Dict[str, Any]:
         query = self._build_filter_query(
             select(MediaItem),
             search=search, library_id=library_id, resolution=resolution,
             video_codec=video_codec, audio_codec=audio_codec, hdr_only=hdr_only,
             min_bitrate=min_bitrate, max_bitrate=max_bitrate,
-            min_size=min_size, max_size=max_size,
+            min_size=min_size, max_size=max_size, tags=tags,
         )
 
         count_query = select(func.count()).select_from(query.subquery())
@@ -84,10 +99,11 @@ class LibraryService:
             query = query.order_by(asc(sort_column))
 
         offset = (page - 1) * page_size
+        query = query.options(joinedload(MediaItem.tags).joinedload(MediaTag.tag))
         query = query.offset(offset).limit(page_size)
 
         result = await self.session.execute(query)
-        items = result.scalars().all()
+        items = result.unique().scalars().all()
 
         item_responses = []
         for item in items:
@@ -97,6 +113,10 @@ class LibraryService:
             )
             lib_title = lib_result.scalar_one_or_none()
             resp.library_title = lib_title
+            resp.tags = [
+                TagBrief(id=mt.tag.id, name=mt.tag.name, color=mt.tag.color)
+                for mt in item.tags if mt.tag
+            ]
             item_responses.append(resp)
 
         total_pages = (total + page_size - 1) // page_size
@@ -118,13 +138,14 @@ class LibraryService:
                            min_bitrate: Optional[int] = None,
                            max_bitrate: Optional[int] = None,
                            min_size: Optional[int] = None,
-                           max_size: Optional[int] = None) -> Dict[str, Any]:
+                           max_size: Optional[int] = None,
+                           tags: Optional[str] = None) -> Dict[str, Any]:
         query = self._build_filter_query(
             select(MediaItem.id),
             search=search, library_id=library_id, resolution=resolution,
             video_codec=video_codec, audio_codec=audio_codec, hdr_only=hdr_only,
             min_bitrate=min_bitrate, max_bitrate=max_bitrate,
-            min_size=min_size, max_size=max_size,
+            min_size=min_size, max_size=max_size, tags=tags,
         )
         result = await self.session.execute(query)
         ids = [row[0] for row in result.all()]
@@ -134,7 +155,7 @@ class LibraryService:
             search=search, library_id=library_id, resolution=resolution,
             video_codec=video_codec, audio_codec=audio_codec, hdr_only=hdr_only,
             min_bitrate=min_bitrate, max_bitrate=max_bitrate,
-            min_size=min_size, max_size=max_size,
+            min_size=min_size, max_size=max_size, tags=tags,
         )
         size_result = await self.session.execute(size_query)
         total_size = size_result.scalar() or 0

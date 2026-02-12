@@ -3,6 +3,7 @@ import Combine
 
 struct TransferProgress {
     var direction: String = "download"  // "download" or "upload"
+    var label: String = ""              // e.g. "Uploading source to remote GPU (worker-1)"
     var progress: Double = 0.0
     var speed: String = "--"
     var etaSeconds: Int = 0
@@ -28,6 +29,7 @@ class TranscodeViewModel: ObservableObject {
     @Published var totalJobs: Int = 0
     @Published var jobLogMessages: [Int: [String]] = [:]
     @Published var jobTransferProgress: [Int: TransferProgress] = [:]
+    @Published var jobPhaseLabel: [Int: String] = [:]
     @Published var cloudApiKeyConfigured: Bool = false
     @Published var isDeployingCloud: Bool = false
 
@@ -103,6 +105,12 @@ class TranscodeViewModel: ObservableObject {
             jobs = response.items
             totalJobs = response.total
             activeJobs = jobs.filter { $0.isActive }
+            // Populate phase labels from persisted status_detail
+            for job in jobs {
+                if let detail = job.statusDetail, !detail.isEmpty, jobPhaseLabel[job.id] == nil {
+                    jobPhaseLabel[job.id] = detail
+                }
+            }
         } catch {
             print("Failed to load jobs: \(error)")
         }
@@ -211,14 +219,17 @@ class TranscodeViewModel: ObservableObject {
                       let jobId = msg.data["job_id"]?.intValue else { return }
                 var tp = TransferProgress()
                 tp.direction = msg.data["direction"]?.stringValue ?? "download"
+                tp.label = msg.data["label"]?.stringValue ?? ""
                 tp.progress = msg.data["progress"]?.doubleValue ?? 0
                 tp.speed = msg.data["speed"]?.stringValue ?? "--"
                 tp.etaSeconds = msg.data["eta_seconds"]?.intValue ?? 0
                 self.jobTransferProgress[jobId] = tp
 
-                // Also append to log
+                // Also append to log — use label if available, else fallback to direction
                 let pct = Int(tp.progress)
-                let dir = tp.direction == "download" ? "Downloading" : "Uploading"
+                let dir = tp.label.isEmpty
+                    ? (tp.direction == "download" ? "Downloading" : "Uploading")
+                    : tp.label
                 let logLine = "\(dir) \(pct)% — \(tp.speed) — ETA \(tp.formattedETA)"
                 self.jobLogMessages[jobId] = [logLine]  // Replace with latest line
             }
@@ -232,9 +243,10 @@ class TranscodeViewModel: ObservableObject {
                    let index = self.jobs.firstIndex(where: { $0.id == jobId }) {
                     self.jobs[index].status = status
                     self.activeJobs = self.jobs.filter { $0.isActive }
-                    // Clear transfer progress when leaving transferring state
+                    // Clear transfer progress and phase label when leaving transferring state
                     if status != "transferring" {
                         self.jobTransferProgress.removeValue(forKey: jobId)
+                        self.jobPhaseLabel.removeValue(forKey: jobId)
                     }
                 }
                 await self.loadJobs()
@@ -246,6 +258,8 @@ class TranscodeViewModel: ObservableObject {
                 guard let self = self,
                       let jobId = msg.data["job_id"]?.intValue,
                       let message = msg.data["message"]?.stringValue else { return }
+                // Use log message as the current phase label
+                self.jobPhaseLabel[jobId] = message
                 var lines = self.jobLogMessages[jobId] ?? []
                 lines.append(message)
                 if lines.count > 20 { lines = Array(lines.suffix(20)) }

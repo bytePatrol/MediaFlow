@@ -167,6 +167,35 @@ class BackendService {
         let _: PathMappingsResponse = try await client.put("/api/settings/path_mappings", body: PathMappingsRequest(value: mappings))
     }
 
+    // MARK: - Tags
+    func getTags() async throws -> [TagInfo] {
+        return try await client.get("/api/tags/")
+    }
+
+    func createTag(name: String, color: String) async throws -> TagInfo {
+        struct CreateTagRequest: Codable { let name: String; let color: String }
+        return try await client.post("/api/tags/", body: CreateTagRequest(name: name, color: color))
+    }
+
+    func updateTag(id: Int, name: String?, color: String?) async throws -> TagInfo {
+        struct UpdateTagRequest: Codable { let name: String?; let color: String? }
+        return try await client.put("/api/tags/\(id)", body: UpdateTagRequest(name: name, color: color))
+    }
+
+    func deleteTag(id: Int) async throws {
+        try await client.delete("/api/tags/\(id)")
+    }
+
+    func applyTags(mediaItemIds: [Int], tagIds: [Int]) async throws -> BulkTagResponse {
+        struct BulkTagRequest: Codable { let mediaItemIds: [Int]; let tagIds: [Int] }
+        return try await client.post("/api/tags/apply", body: BulkTagRequest(mediaItemIds: mediaItemIds, tagIds: tagIds))
+    }
+
+    func removeTags(mediaItemIds: [Int], tagIds: [Int]) async throws -> BulkTagResponse {
+        struct BulkTagRemoveRequest: Codable { let mediaItemIds: [Int]; let tagIds: [Int] }
+        return try await client.post("/api/tags/remove", body: BulkTagRemoveRequest(mediaItemIds: mediaItemIds, tagIds: tagIds))
+    }
+
     // MARK: - Analytics
     func getAnalyticsOverview() async throws -> AnalyticsOverview {
         return try await client.get("/api/analytics/overview")
@@ -204,6 +233,10 @@ class BackendService {
 struct BatchQueueResponse: Codable {
     let status: String
     let jobsCreated: Int
+}
+
+struct BulkTagResponse: Codable {
+    let status: String
 }
 
 struct SyncResponse: Codable {

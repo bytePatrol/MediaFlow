@@ -10,11 +10,13 @@ class FilterState: ObservableObject {
     @Published var minSize: Int? = nil
     @Published var maxSize: Int? = nil
     @Published var libraryId: Int? = nil
+    @Published var selectedTagIds: Set<Int> = []
 
     var isActive: Bool {
         !resolutions.isEmpty || !videoCodecs.isEmpty || !audioCodecs.isEmpty
         || hdrOnly || minBitrate != nil || maxBitrate != nil
         || minSize != nil || maxSize != nil || libraryId != nil
+        || !selectedTagIds.isEmpty
     }
 
     var activeFilterCount: Int {
@@ -26,6 +28,7 @@ class FilterState: ObservableObject {
         if minBitrate != nil || maxBitrate != nil { count += 1 }
         if minSize != nil || maxSize != nil { count += 1 }
         if libraryId != nil { count += 1 }
+        if !selectedTagIds.isEmpty { count += 1 }
         return count
     }
 
@@ -43,6 +46,9 @@ class FilterState: ObservableObject {
         if hdrOnly {
             pills.append(FilterPill(category: "HDR", value: "Only", clearAction: { self.hdrOnly = false }))
         }
+        if !selectedTagIds.isEmpty {
+            pills.append(FilterPill(category: "Tags", value: "\(selectedTagIds.count) selected", clearAction: { self.selectedTagIds.removeAll() }))
+        }
         return pills
     }
 
@@ -56,6 +62,7 @@ class FilterState: ObservableObject {
         minSize = nil
         maxSize = nil
         libraryId = nil
+        selectedTagIds.removeAll()
     }
 
     func toQueryItems() -> [URLQueryItem] {
@@ -80,6 +87,9 @@ class FilterState: ObservableObject {
         }
         if let id = libraryId {
             items.append(URLQueryItem(name: "library_id", value: "\(id)"))
+        }
+        if !selectedTagIds.isEmpty {
+            items.append(URLQueryItem(name: "tags", value: selectedTagIds.map { "\($0)" }.joined(separator: ",")))
         }
         return items
     }

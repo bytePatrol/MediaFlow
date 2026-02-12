@@ -1,5 +1,12 @@
 import Foundation
 
+struct TagInfo: Identifiable, Codable, Hashable {
+    let id: Int
+    let name: String
+    let color: String
+    var mediaCount: Int?
+}
+
 struct MediaItem: Identifiable, Codable, Hashable {
     let id: Int
     let plexLibraryId: Int
@@ -29,6 +36,7 @@ struct MediaItem: Identifiable, Codable, Hashable {
     var genres: [String]?
     var directors: [String]?
     var libraryTitle: String?
+    var tags: [TagInfo]?
 
     // Computed properties
     var resolutionBadgeText: String {

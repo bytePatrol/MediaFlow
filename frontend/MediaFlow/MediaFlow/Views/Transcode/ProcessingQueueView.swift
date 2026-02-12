@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ProcessingQueueView: View {
-    @StateObject private var viewModel = TranscodeViewModel()
+    @EnvironmentObject var viewModel: TranscodeViewModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -202,6 +202,7 @@ struct ProcessingQueueView: View {
                                 job: job,
                                 logMessages: viewModel.jobLogMessages[job.id] ?? [],
                                 transferProgress: viewModel.jobTransferProgress[job.id],
+                                phaseLabel: viewModel.jobPhaseLabel[job.id],
                                 onCancel: {
                                     Task { await viewModel.cancelJob(job.id) }
                                 }
@@ -227,10 +228,9 @@ struct ProcessingQueueView: View {
         }
         .background(Color.mfBackground)
         .task {
-            viewModel.connectWebSocket()
+            // Refresh on tab switch — WebSocket keeps state alive between visits
             await viewModel.loadJobs()
             await viewModel.loadQueueStats()
-            await viewModel.loadCloudSettings()
         }
     }
 }

@@ -81,6 +81,7 @@ class TranscodeJobResponse(BaseModel):
     worker_server_id: Optional[int] = None
     config_json: Optional[Any] = None
     status: str
+    status_detail: Optional[str] = None
     priority: int = 0
     progress_percent: float = 0.0
     current_fps: Optional[float] = None

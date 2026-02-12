@@ -27,6 +27,7 @@ class TranscodeJob(Base):
     ffmpeg_log = Column(String, nullable=True)
     checkpoint_frame = Column(Integer, nullable=True)
     scheduled_after = Column(DateTime, nullable=True)
+    status_detail = Column(String(500), nullable=True)
     is_dry_run = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

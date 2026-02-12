@@ -18,6 +18,7 @@ class LibraryViewModel: ObservableObject {
     @Published var columnConfig = ColumnConfig()
     @Published var allFilteredTotalSize: Int = 0
     @Published var isSelectingAll: Bool = false
+    @Published var availableTags: [TagInfo] = []
 
     private let service: BackendService
     private let debouncer = Debouncer(duration: .milliseconds(300))
@@ -85,6 +86,60 @@ class LibraryViewModel: ObservableObject {
             sections = try await service.getLibrarySections()
         } catch {
             print("Failed to load sections: \(error)")
+        }
+    }
+
+    func loadTags() async {
+        do {
+            availableTags = try await service.getTags()
+        } catch {
+            print("Failed to load tags: \(error)")
+        }
+    }
+
+    func createTag(name: String, color: String) async throws -> TagInfo {
+        let tag = try await service.createTag(name: name, color: color)
+        await loadTags()
+        return tag
+    }
+
+    func deleteTag(id: Int) async {
+        do {
+            try await service.deleteTag(id: id)
+            await loadTags()
+        } catch {
+            print("Failed to delete tag: \(error)")
+        }
+    }
+
+    func updateTag(id: Int, name: String?, color: String?) async {
+        do {
+            let _ = try await service.updateTag(id: id, name: name, color: color)
+            await loadTags()
+        } catch {
+            print("Failed to update tag: \(error)")
+        }
+    }
+
+    func applyTagsToSelected(tagIds: [Int]) async {
+        guard !selectedItems.isEmpty, !tagIds.isEmpty else { return }
+        do {
+            let _ = try await service.applyTags(mediaItemIds: Array(selectedItems), tagIds: tagIds)
+            await loadTags()
+            await loadItems(page: currentPage)
+        } catch {
+            print("Failed to apply tags: \(error)")
+        }
+    }
+
+    func removeTagsFromSelected(tagIds: [Int]) async {
+        guard !selectedItems.isEmpty, !tagIds.isEmpty else { return }
+        do {
+            let _ = try await service.removeTags(mediaItemIds: Array(selectedItems), tagIds: tagIds)
+            await loadTags()
+            await loadItems(page: currentPage)
+        } catch {
+            print("Failed to remove tags: \(error)")
         }
     }
 

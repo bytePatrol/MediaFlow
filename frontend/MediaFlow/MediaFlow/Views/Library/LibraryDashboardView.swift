@@ -5,6 +5,10 @@ struct LibraryDashboardView: View {
     @StateObject private var viewModel = LibraryViewModel()
     @State private var showFilterSidebar: Bool = false
     @State private var transcodePanel = TranscodeConfigPanel()
+    @State private var showTagPopover: Bool = false
+    @State private var showManageTags: Bool = false
+    @State private var newTagName: String = ""
+    @State private var newTagColor: String = "#256af4"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,7 +26,7 @@ struct LibraryDashboardView: View {
             // Main Content
             HStack(spacing: 0) {
                 if showFilterSidebar {
-                    FilterSidebarView(filterState: viewModel.filterState) {
+                    FilterSidebarView(filterState: viewModel.filterState, availableTags: viewModel.availableTags) {
                         Task { await viewModel.applyFilters() }
                     }
                     .frame(width: 240)
@@ -44,8 +48,12 @@ struct LibraryDashboardView: View {
         }
         .background(Color.mfBackground)
         .searchable(text: $viewModel.searchText, prompt: "Search library items...")
+        .sheet(isPresented: $showManageTags) {
+            ManageTagsSheet(viewModel: viewModel)
+        }
         .task {
             await viewModel.loadSections()
+            await viewModel.loadTags()
             await viewModel.loadItems()
         }
     }
@@ -123,6 +131,8 @@ struct LibraryDashboardView: View {
 
                 selectionBadge
 
+                tagButton
+
                 transcodeButton
             }
         }
@@ -177,6 +187,143 @@ struct LibraryDashboardView: View {
                 .padding(.vertical, 4)
                 .background(Color.mfPrimary.opacity(0.12))
                 .clipShape(Capsule())
+        }
+    }
+
+    // MARK: - Tag Button
+
+    private var tagButton: some View {
+        Button {
+            showTagPopover.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "tag")
+                    .font(.system(size: 11))
+                Text("Tag")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.mfSurface)
+            .foregroundColor(viewModel.selectedItems.isEmpty ? .mfTextMuted : .mfTextPrimary)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.mfGlassBorder))
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.selectedItems.isEmpty)
+        .popover(isPresented: $showTagPopover) {
+            tagPopoverContent
+        }
+    }
+
+    private var tagPopoverContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Apply Tags")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+
+            Divider().background(Color.mfGlassBorder)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(viewModel.availableTags) { tag in
+                        let isApplied = isTagAppliedToSelection(tag: tag)
+                        Button {
+                            Task {
+                                if isApplied {
+                                    await viewModel.removeTagsFromSelected(tagIds: [tag.id])
+                                } else {
+                                    await viewModel.applyTagsToSelected(tagIds: [tag.id])
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(Color(hex: tag.color))
+                                    .frame(width: 10, height: 10)
+                                Text(tag.name)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.mfTextPrimary)
+                                Spacer()
+                                if isApplied {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.mfPrimary)
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 200)
+
+            Divider().background(Color.mfGlassBorder)
+
+            // New Tag row
+            HStack(spacing: 6) {
+                TextField("New tag...", text: $newTagName)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(Color.mfSurface)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                Button {
+                    guard !newTagName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                    Task {
+                        do {
+                            let _ = try await viewModel.createTag(name: newTagName.trimmingCharacters(in: .whitespaces), color: newTagColor)
+                            newTagName = ""
+                        } catch {
+                            print("Failed to create tag: \(error)")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(.mfPrimary)
+                }
+                .buttonStyle(.plain)
+                .disabled(newTagName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider().background(Color.mfGlassBorder)
+
+            Button {
+                showTagPopover = false
+                showManageTags = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "gear")
+                        .font(.system(size: 10))
+                    Text("Manage Tags")
+                        .font(.system(size: 11))
+                }
+                .foregroundColor(.mfTextMuted)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(width: 220)
+        .background(Color.mfBackground)
+    }
+
+    private func isTagAppliedToSelection(tag: TagInfo) -> Bool {
+        let selectedItems = viewModel.items.filter { viewModel.selectedItems.contains($0.id) }
+        guard !selectedItems.isEmpty else { return false }
+        return selectedItems.allSatisfy { item in
+            item.tags?.contains(where: { $0.id == tag.id }) ?? false
         }
     }
 
@@ -266,5 +413,119 @@ struct LibraryDashboardView: View {
             && viewModel.selectedItems.count == viewModel.items.count
             && viewModel.totalCount > viewModel.items.count
             && !viewModel.hasSelectionBeyondPage
+    }
+}
+
+// MARK: - Manage Tags Sheet
+
+struct ManageTagsSheet: View {
+    @ObservedObject var viewModel: LibraryViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var newName: String = ""
+    @State private var newColor: String = "#256af4"
+    @State private var editingTag: TagInfo? = nil
+    @State private var editName: String = ""
+
+    private let colorPresets = ["#256af4", "#e53e3e", "#38a169", "#d69e2e", "#805ad5", "#dd6b20", "#319795", "#d53f8c"]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Manage Tags")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button("Done") { dismiss() }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.mfPrimary)
+            }
+            .padding(16)
+
+            Divider().background(Color.mfGlassBorder)
+
+            List {
+                ForEach(viewModel.availableTags) { tag in
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(Color(hex: tag.color))
+                            .frame(width: 12, height: 12)
+
+                        if editingTag?.id == tag.id {
+                            TextField("Name", text: $editName, onCommit: {
+                                Task {
+                                    await viewModel.updateTag(id: tag.id, name: editName, color: nil)
+                                    editingTag = nil
+                                }
+                            })
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13))
+                        } else {
+                            Text(tag.name)
+                                .font(.system(size: 13))
+                                .foregroundColor(.mfTextPrimary)
+                                .onTapGesture(count: 2) {
+                                    editingTag = tag
+                                    editName = tag.name
+                                }
+                        }
+
+                        Spacer()
+
+                        Text("\(tag.mediaCount ?? 0) items")
+                            .font(.system(size: 11))
+                            .foregroundColor(.mfTextMuted)
+
+                        Button {
+                            Task { await viewModel.deleteTag(id: tag.id) }
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11))
+                                .foregroundColor(.mfTextMuted)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                // New tag row
+                HStack(spacing: 8) {
+                    HStack(spacing: 4) {
+                        ForEach(colorPresets, id: \.self) { color in
+                            Circle()
+                                .fill(Color(hex: color))
+                                .frame(width: 14, height: 14)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.white, lineWidth: newColor == color ? 2 : 0)
+                                )
+                                .onTapGesture { newColor = color }
+                        }
+                    }
+
+                    TextField("New tag name...", text: $newName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+
+                    Button {
+                        guard !newName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                        Task {
+                            let _ = try? await viewModel.createTag(
+                                name: newName.trimmingCharacters(in: .whitespaces),
+                                color: newColor
+                            )
+                            newName = ""
+                        }
+                    } label: {
+                        Text("Add")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.mfPrimary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+        .frame(width: 420, height: 350)
+        .background(Color.mfBackground)
     }
 }

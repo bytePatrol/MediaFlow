@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FilterSidebarView: View {
     @ObservedObject var filterState: FilterState
+    var availableTags: [TagInfo] = []
     let onApply: () -> Void
 
     let resolutionOptions = ["4K", "1080p", "720p", "480p", "SD"]
@@ -115,6 +116,27 @@ struct FilterSidebarView: View {
                             .font(.system(size: 12))
                             .tint(.mfPrimary)
                     }
+
+                    // Tags
+                    if !availableTags.isEmpty {
+                        FilterSection(title: "Tags") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(availableTags) { tag in
+                                    FilterCheckbox(
+                                        label: tag.name,
+                                        isChecked: filterState.selectedTagIds.contains(tag.id),
+                                        color: Color(hex: tag.color)
+                                    ) {
+                                        if filterState.selectedTagIds.contains(tag.id) {
+                                            filterState.selectedTagIds.remove(tag.id)
+                                        } else {
+                                            filterState.selectedTagIds.insert(tag.id)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 .padding(20)
             }
@@ -173,6 +195,7 @@ struct FilterSection<Content: View>: View {
 struct FilterCheckbox: View {
     let label: String
     let isChecked: Bool
+    var color: Color? = nil
     let action: () -> Void
 
     var body: some View {
@@ -181,6 +204,11 @@ struct FilterCheckbox: View {
                 Image(systemName: isChecked ? "checkmark.square.fill" : "square")
                     .font(.system(size: 13))
                     .foregroundColor(isChecked ? .mfPrimary : .mfTextMuted)
+                if let color = color {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 8, height: 8)
+                }
                 Text(label)
                     .font(.system(size: 12))
                     .foregroundColor(.mfTextPrimary)

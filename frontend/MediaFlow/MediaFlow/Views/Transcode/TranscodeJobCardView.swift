@@ -4,6 +4,7 @@ struct TranscodeJobCardView: View {
     let job: TranscodeJob
     var logMessages: [String] = []
     var transferProgress: TransferProgress?
+    var phaseLabel: String? = nil
     var onCancel: (() -> Void)? = nil
     @State private var showLog: Bool = false
 
@@ -28,15 +29,27 @@ struct TranscodeJobCardView: View {
 
     private var phaseDescription: String? {
         if job.status == "transferring", let tp = transferProgress {
-            let dir = tp.direction == "download" ? "Downloading" : "Uploading"
+            let dir = tp.label.isEmpty
+                ? (tp.direction == "download" ? "Downloading" : "Uploading")
+                : tp.label
             return "\(dir) — \(tp.speed) — ETA \(tp.formattedETA)"
         }
         switch job.status {
-        case "transferring": return "Transferring file via SSH..."
+        case "transferring": return phaseLabel ?? "Transferring file..."
         case "verifying": return "Verifying output..."
         case "replacing": return "Replacing original..."
-        default: return nil
+        default: return phaseLabel
         }
+    }
+
+    private var transferStatusLabel: String {
+        if let tp = transferProgress, !tp.label.isEmpty {
+            return tp.label
+        }
+        if let label = phaseLabel {
+            return label
+        }
+        return job.statusDisplayName
     }
 
     var body: some View {
@@ -183,9 +196,10 @@ struct TranscodeJobCardView: View {
                         // Progress bar
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text(job.statusDisplayName)
+                                Text(job.status == "transferring" ? transferStatusLabel : job.statusDisplayName)
                                     .font(.system(size: 11, weight: .semibold))
                                     .foregroundColor(statusColor)
+                                    .lineLimit(1)
                                 Spacer()
                                 if job.status == "transferring", let tp = transferProgress {
                                     Text("\(Int(tp.progress))%")
