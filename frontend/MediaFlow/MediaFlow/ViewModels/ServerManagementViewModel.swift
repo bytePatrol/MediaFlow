@@ -19,6 +19,7 @@ class ServerManagementViewModel: ObservableObject {
     @Published var cloudDeployError: [Int: String] = [:]
 
     var onCloudDeployFailed: ((String) -> Void)?
+    var onCloudAutoDeployTriggered: ((Int, String) -> Void)?
 
     private let service: BackendService
     private var wsClient: WebSocketClient?
@@ -300,6 +301,21 @@ class ServerManagementViewModel: ObservableObject {
                 await self.loadServers()
                 try? await Task.sleep(for: .seconds(15))
                 self.cloudDeployError.removeValue(forKey: serverId)
+            }
+        }
+
+        client.subscribe(to: "cloud.auto_deploy_triggered") { [weak self] message in
+            guard let self = self else { return }
+            let jobCount = message.data["job_count"]?.intValue ?? 0
+            let region = message.data["region"]?.stringValue ?? ""
+            self.onCloudAutoDeployTriggered?(jobCount, region)
+        }
+
+        client.subscribe(to: "cloud.jobs_reassigned") { [weak self] message in
+            guard let self = self else { return }
+            let jobCount = message.data["job_count"]?.intValue ?? 0
+            if jobCount > 0 {
+                Task { await self.loadServers() }
             }
         }
 

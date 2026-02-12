@@ -170,6 +170,9 @@ struct ServerManagementView: View {
             viewModel.onCloudDeployFailed = { [weak appState] errorMsg in
                 appState?.showToast("Cloud GPU deploy failed: \(errorMsg)", icon: "cloud.bolt", style: .error)
             }
+            viewModel.onCloudAutoDeployTriggered = { [weak appState] jobCount, region in
+                appState?.showToast("Auto-deploying cloud GPU for \(jobCount) queued job\(jobCount == 1 ? "" : "s")...", icon: "cloud.bolt.fill", style: .info)
+            }
             await viewModel.loadServers()
             await viewModel.loadBenchmarks()
             viewModel.connectWebSocket()

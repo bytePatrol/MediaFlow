@@ -812,6 +812,7 @@ struct CloudGPUSettingsView: View {
     @State private var defaultIdleMinutes: Double = 30
     @State private var selectedPlan: String = "vcg-a16-6c-64g-16vram"
     @State private var selectedRegion: String = "ewr"
+    @State private var autoDeployEnabled: Bool = false
     @State private var plans: [CloudPlanInfo] = []
 
     private let service = BackendService()
@@ -887,6 +888,27 @@ struct CloudGPUSettingsView: View {
                         .frame(maxWidth: 400)
                         .tint(.mfPrimary)
                 }
+            }
+            .padding(20)
+            .cardStyle()
+
+            // Auto-Deploy
+            VStack(alignment: .leading, spacing: 12) {
+                Text("AUTO-DEPLOY")
+                    .mfSectionHeader()
+
+                Toggle(isOn: $autoDeployEnabled) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Auto-deploy cloud GPU when no workers are available")
+                            .font(.mfBody)
+                            .foregroundColor(.mfTextPrimary)
+                        Text("Automatically deploys a cloud GPU instance using your default plan when transcode jobs are queued with no online workers.")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextMuted)
+                    }
+                }
+                .toggleStyle(.switch)
+                .tint(.mfPrimary)
             }
             .padding(20)
             .cardStyle()
@@ -972,6 +994,7 @@ struct CloudGPUSettingsView: View {
             defaultIdleMinutes = Double(s.defaultIdleMinutes)
             selectedPlan = s.defaultPlan
             selectedRegion = s.defaultRegion
+            autoDeployEnabled = s.autoDeployEnabled
         } catch {
             statusMessage = "Failed to load settings"
             statusIsError = true
@@ -988,7 +1011,8 @@ struct CloudGPUSettingsView: View {
                 defaultRegion: selectedRegion,
                 monthlySpendCap: monthlySpendCap,
                 instanceSpendCap: instanceSpendCap,
-                defaultIdleMinutes: Int(defaultIdleMinutes)
+                defaultIdleMinutes: Int(defaultIdleMinutes),
+                autoDeployEnabled: autoDeployEnabled
             )
             let updated = try await service.updateCloudSettings(request: request)
             settings = updated

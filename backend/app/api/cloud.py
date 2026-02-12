@@ -154,6 +154,7 @@ async def get_cloud_settings():
             monthly_spend_cap=float(await _get_setting(session, "cloud_monthly_spend_cap", 100.0)),
             instance_spend_cap=float(await _get_setting(session, "cloud_instance_spend_cap", 50.0)),
             default_idle_minutes=int(await _get_setting(session, "cloud_default_idle_minutes", 30)),
+            auto_deploy_enabled=await _get_setting(session, "cloud_auto_deploy_enabled", "false") == "true",
         )
 
 
@@ -180,6 +181,8 @@ async def update_cloud_settings(request: CloudSettingsUpdate):
             await _set_setting(session, "cloud_instance_spend_cap", request.instance_spend_cap)
         if request.default_idle_minutes is not None:
             await _set_setting(session, "cloud_default_idle_minutes", request.default_idle_minutes)
+        if request.auto_deploy_enabled is not None:
+            await _set_setting(session, "cloud_auto_deploy_enabled", "true" if request.auto_deploy_enabled else "false")
 
         await session.commit()
 

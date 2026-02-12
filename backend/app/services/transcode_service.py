@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +12,7 @@ from app.models.media_item import MediaItem
 from app.models.worker_server import WorkerServer
 from app.models.plex_library import PlexLibrary
 from app.models.plex_server import PlexServer
+from app.models.app_settings import AppSetting
 from app.schemas.transcode import (
     TranscodeJobCreate, TranscodeJobResponse, TranscodeJobUpdate,
     QueueStatsResponse, DryRunResponse,
@@ -244,7 +247,107 @@ class TranscodeService:
         await self.session.commit()
         for job in jobs:
             await self.session.refresh(job)
+
+        # Auto-deploy cloud GPU if any jobs have no worker assigned
+        unassigned = [j for j in jobs if j.worker_server_id is None]
+        if unassigned:
+            await self._maybe_auto_deploy_cloud(len(unassigned))
+
         return jobs
+
+    async def _maybe_auto_deploy_cloud(self, job_count: int):
+        """Trigger a cloud GPU deploy if auto-deploy is enabled and no workers are provisioning."""
+        try:
+            # Read settings
+            result = await self.session.execute(
+                select(AppSetting).where(AppSetting.key == "cloud_auto_deploy_enabled")
+            )
+            setting = result.scalar_one_or_none()
+            if not setting or setting.value != "true":
+                return
+
+            # Check for Vultr API key
+            result = await self.session.execute(
+                select(AppSetting).where(AppSetting.key == "vultr_api_key")
+            )
+            api_key_setting = result.scalar_one_or_none()
+            if not api_key_setting or not api_key_setting.value:
+                logger.debug("Auto-deploy skipped: no Vultr API key configured")
+                return
+
+            # Check for existing provisioning cloud workers
+            result = await self.session.execute(
+                select(WorkerServer).where(
+                    WorkerServer.cloud_provider.isnot(None),
+                    WorkerServer.cloud_status.in_(["creating", "bootstrapping"]),
+                )
+            )
+            if result.scalars().first():
+                logger.info("Auto-deploy skipped: cloud instance already provisioning")
+                return
+
+            # Check monthly spend cap
+            result = await self.session.execute(
+                select(AppSetting).where(AppSetting.key == "cloud_monthly_spend_cap")
+            )
+            cap_setting = result.scalar_one_or_none()
+            monthly_cap = float(cap_setting.value) if cap_setting and cap_setting.value else 100.0
+
+            from app.models.cloud_cost import CloudCostRecord
+            now = datetime.utcnow()
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            result = await self.session.execute(
+                select(func.coalesce(func.sum(CloudCostRecord.cost_usd), 0)).where(
+                    CloudCostRecord.created_at >= month_start,
+                )
+            )
+            current_spend = float(result.scalar() or 0)
+            if current_spend >= monthly_cap:
+                logger.info("Auto-deploy skipped: monthly spend cap reached ($%.2f/$%.2f)", current_spend, monthly_cap)
+                return
+
+            # Read defaults
+            defaults = {}
+            for key, default in [
+                ("cloud_default_plan", "vcg-a16-6c-64g-16vram"),
+                ("cloud_default_region", "ewr"),
+                ("cloud_default_idle_minutes", "30"),
+            ]:
+                result = await self.session.execute(
+                    select(AppSetting).where(AppSetting.key == key)
+                )
+                s = result.scalar_one_or_none()
+                defaults[key] = s.value if s and s.value else default
+
+            plan = defaults["cloud_default_plan"]
+            region = defaults["cloud_default_region"]
+            idle_minutes = int(defaults["cloud_default_idle_minutes"])
+
+            logger.info("Auto-deploying cloud GPU for %d unassigned jobs (plan=%s, region=%s)", job_count, plan, region)
+
+            # Fire background deploy task
+            from app.services.cloud_provisioning_service import deploy_cloud_gpu
+            from app.api.websocket import manager
+
+            async def _run_auto_deploy():
+                try:
+                    await deploy_cloud_gpu(
+                        plan=plan, region=region,
+                        idle_minutes=idle_minutes, auto_teardown=True,
+                    )
+                except Exception as e:
+                    logger.error("Auto-deploy cloud GPU failed: %s", e)
+
+            asyncio.create_task(_run_auto_deploy())
+
+            await manager.broadcast("cloud.auto_deploy_triggered", {
+                "job_count": job_count,
+                "plan": plan,
+                "region": region,
+            })
+
+        except Exception as e:
+            logger.error("Auto-deploy check failed: %s", e)
 
     async def get_jobs(self, status: Optional[str] = None,
                        page: int = 1, page_size: int = 50) -> Dict[str, Any]:

@@ -60,6 +60,7 @@ class CloudSettingsResponse(BaseModel):
     monthly_spend_cap: float
     instance_spend_cap: float
     default_idle_minutes: int
+    auto_deploy_enabled: bool
 
 
 class CloudSettingsUpdate(BaseModel):
@@ -69,3 +70,4 @@ class CloudSettingsUpdate(BaseModel):
     monthly_spend_cap: Optional[float] = None
     instance_spend_cap: Optional[float] = None
     default_idle_minutes: Optional[int] = None
+    auto_deploy_enabled: Optional[bool] = None

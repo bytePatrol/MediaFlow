@@ -9,6 +9,10 @@ from sqlalchemy import select
 
 from app.database import async_session_factory
 from app.models.worker_server import WorkerServer
+from app.models.transcode_job import TranscodeJob
+from app.models.media_item import MediaItem
+from app.models.plex_library import PlexLibrary
+from app.models.plex_server import PlexServer
 from app.models.cloud_cost import CloudCostRecord
 from app.models.app_settings import AppSetting
 from app.api.websocket import manager
@@ -268,7 +272,94 @@ async def deploy_cloud_gpu(
     })
 
     logger.info(f"Cloud GPU deployed: server_id={server_id}, ip={ip_address}, plan={plan}")
+
+    # Reassign queued jobs that have no worker
+    await _reassign_unassigned_jobs(server_id)
+
     return server_id
+
+
+async def _reassign_unassigned_jobs(worker_server_id: int):
+    """Reassign queued jobs with no worker to the newly deployed cloud worker."""
+    from app.utils.ffmpeg import FFmpegCommandBuilder
+    from app.utils.path_resolver import determine_transfer_mode
+    from app.services.transcode_service import TranscodeService
+
+    async with async_session_factory() as session:
+        # Load the new worker
+        result = await session.execute(
+            select(WorkerServer).where(WorkerServer.id == worker_server_id)
+        )
+        worker = result.scalar_one_or_none()
+        if not worker or worker.status != "online":
+            return
+
+        # Find all queued jobs with no worker assigned
+        result = await session.execute(
+            select(TranscodeJob).where(
+                TranscodeJob.status == "queued",
+                TranscodeJob.worker_server_id.is_(None),
+            )
+        )
+        jobs = result.scalars().all()
+        if not jobs:
+            return
+
+        svc = TranscodeService(session)
+        reassigned_count = 0
+
+        for job in jobs:
+            # Determine transfer mode for this worker
+            plex_server_has_ssh = False
+            if job.media_item_id:
+                media_result = await session.execute(
+                    select(MediaItem).where(MediaItem.id == job.media_item_id)
+                )
+                media = media_result.scalar_one_or_none()
+                if media and media.plex_library_id:
+                    lib_result = await session.execute(
+                        select(PlexLibrary).where(PlexLibrary.id == media.plex_library_id)
+                    )
+                    lib = lib_result.scalar_one_or_none()
+                    if lib and lib.plex_server_id:
+                        srv_result = await session.execute(
+                            select(PlexServer).where(PlexServer.id == lib.plex_server_id)
+                        )
+                        srv = srv_result.scalar_one_or_none()
+                        if srv and srv.ssh_hostname:
+                            plex_server_has_ssh = True
+
+            mode, resolved_path = determine_transfer_mode(
+                job.source_path, worker.is_local, worker.path_mappings or [],
+                plex_server_has_ssh=plex_server_has_ssh,
+            )
+
+            # Upgrade to NVENC if worker has GPU
+            config = job.config_json or {}
+            config = await svc._maybe_upgrade_to_nvenc(worker_server_id, config)
+
+            # Rebuild ffmpeg command with worker path
+            effective_input = resolved_path or job.source_path
+            builder = FFmpegCommandBuilder(config, effective_input)
+            ffmpeg_command = builder.build()
+            output_path = builder._get_output_path()
+
+            job.worker_server_id = worker_server_id
+            job.transfer_mode = mode
+            job.worker_input_path = resolved_path
+            job.config_json = config
+            job.ffmpeg_command = ffmpeg_command
+            job.output_path = output_path
+            reassigned_count += 1
+
+        await session.commit()
+
+        if reassigned_count > 0:
+            logger.info(f"Reassigned {reassigned_count} queued jobs to cloud worker {worker_server_id}")
+            await manager.broadcast("cloud.jobs_reassigned", {
+                "server_id": worker_server_id,
+                "job_count": reassigned_count,
+            })
 
 
 async def _poll_instance_active(vultr: VultrClient, instance_id: str, server_id: int) -> str:

@@ -192,6 +192,7 @@ struct CloudSettingsResponse: Codable {
     let monthlySpendCap: Double
     let instanceSpendCap: Double
     let defaultIdleMinutes: Int
+    let autoDeployEnabled: Bool
 }
 
 struct CloudSettingsUpdate: Codable {
@@ -201,4 +202,5 @@ struct CloudSettingsUpdate: Codable {
     var monthlySpendCap: Double?
     var instanceSpendCap: Double?
     var defaultIdleMinutes: Int?
+    var autoDeployEnabled: Bool?
 }
