@@ -48,13 +48,16 @@ class SSHClient:
             logger.debug(f"SSH test to {self.hostname}: {e}")
             return False
 
-    async def run_command(self, command: str) -> Dict[str, Any]:
+    async def run_command(self, command: str, timeout: int = 300) -> Dict[str, Any]:
         try:
             import asyncssh
             kwargs = self._connect_kwargs()
 
             async with asyncssh.connect(**kwargs) as conn:
-                result = await conn.run(command)
+                result = await asyncio.wait_for(
+                    conn.run(command),
+                    timeout=timeout,
+                )
                 return {
                     "stdout": result.stdout,
                     "stderr": result.stderr,
@@ -62,6 +65,8 @@ class SSHClient:
                 }
         except ImportError:
             return {"stdout": "", "stderr": "asyncssh not installed", "exit_status": 1}
+        except asyncio.TimeoutError:
+            return {"stdout": "", "stderr": f"Command timed out after {timeout}s", "exit_status": 1}
         except Exception as e:
             return {"stdout": "", "stderr": str(e), "exit_status": 1}
 
@@ -165,8 +170,9 @@ class SSHClient:
                 pass
 
         gpu_result = await self.run_command("nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1")
-        if gpu_result["exit_status"] == 0 and gpu_result["stdout"].strip():
-            capabilities["gpu_model"] = gpu_result["stdout"].strip()
+        gpu_name = gpu_result.get("stdout", "").strip()
+        if gpu_result["exit_status"] == 0 and gpu_name and "failed" not in gpu_name.lower():
+            capabilities["gpu_model"] = gpu_name
             capabilities["hw_accel_types"] = ["nvenc"]
         else:
             capabilities["hw_accel_types"] = []
