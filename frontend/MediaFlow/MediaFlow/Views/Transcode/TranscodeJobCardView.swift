@@ -8,6 +8,11 @@ struct TranscodeJobCardView: View {
     var onCancel: (() -> Void)? = nil
     @State private var showLog: Bool = false
 
+    private var sizeChangeColor: Color {
+        guard let reduction = job.sizeReductionPercent else { return .mfSuccess }
+        return reduction >= 0 ? .mfSuccess : .mfWarning
+    }
+
     private var statusColor: Color {
         switch job.status {
         case "completed": return .mfSuccess
@@ -168,86 +173,113 @@ struct TranscodeJobCardView: View {
                     Spacer(minLength: 8)
 
                     // Stats + Progress
-                    HStack(spacing: 12) {
-                        if job.status == "transferring", let tp = transferProgress {
-                            // Transfer speed/ETA chips
-                            HStack(spacing: 0) {
-                                StatChip(label: "SPEED", value: tp.speed)
+                    if job.status == "completed" {
+                        // Completion stats
+                        HStack(spacing: 0) {
+                            StatChip(label: "BEFORE", value: job.formattedSourceSize)
+                            Divider().frame(height: 24).padding(.horizontal, 8)
+                            StatChip(label: "AFTER", value: job.formattedOutputSize, color: sizeChangeColor)
+                            Divider().frame(height: 24).padding(.horizontal, 8)
+                            if let reduction = job.sizeReductionPercent {
+                                StatChip(
+                                    label: reduction >= 0 ? "SAVED" : "LARGER",
+                                    value: String(format: "%.1f%%", abs(reduction)),
+                                    color: reduction >= 0 ? .mfSuccess : .mfWarning
+                                )
                                 Divider().frame(height: 24).padding(.horizontal, 8)
-                                StatChip(label: "ETA", value: tp.formattedETA)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color.mfSurface.opacity(0.5))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        } else if job.isActive {
-                            // Transcode speed/ETA chips
-                            HStack(spacing: 0) {
-                                StatChip(label: "SPEED", value: job.currentFps.map { String(format: "%.1f FPS", $0) } ?? "--")
+                            StatChip(label: "DURATION", value: job.formattedDuration)
+                            if job.cloudCostUsd != nil {
                                 Divider().frame(height: 24).padding(.horizontal, 8)
-                                StatChip(label: "ETA", value: job.formattedETA)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color.mfSurface.opacity(0.5))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
-
-                        // Progress bar
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(job.status == "transferring" ? transferStatusLabel : job.statusDisplayName)
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(statusColor)
-                                    .lineLimit(1)
-                                Spacer()
-                                if job.status == "transferring", let tp = transferProgress {
-                                    Text("\(Int(tp.progress))%")
-                                        .font(.mfMonoSmall)
-                                        .foregroundColor(.mfTextSecondary)
-                                } else if job.status != "failed" {
-                                    Text("\(Int(job.progressPercent))%")
-                                        .font(.mfMonoSmall)
-                                        .foregroundColor(.mfTextSecondary)
-                                }
-                            }
-
-                            if job.status == "failed" {
-                                if let log = job.ffmpegLog, !log.isEmpty {
-                                    let errorLine = log.components(separatedBy: "\n").last(where: { !$0.isEmpty }) ?? log
-                                    Text(errorLine)
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(.mfError.opacity(0.8))
-                                        .lineLimit(2)
-                                }
-                            } else if job.status == "transferring" {
-                                GeometryReader { geo in
-                                    ZStack(alignment: .leading) {
-                                        RoundedRectangle(cornerRadius: 3)
-                                            .fill(Color.mfSurface)
-                                            .frame(height: 6)
-                                        RoundedRectangle(cornerRadius: 3)
-                                            .fill(Color.mfPrimary)
-                                            .frame(width: geo.size.width * (transferProgress?.progress ?? 0) / 100.0, height: 6)
-                                            .animation(.linear(duration: 0.3), value: transferProgress?.progress)
-                                    }
-                                }
-                                .frame(height: 6)
-                            } else {
-                                GeometryReader { geo in
-                                    ZStack(alignment: .leading) {
-                                        RoundedRectangle(cornerRadius: 3)
-                                            .fill(Color.mfSurface)
-                                            .frame(height: 6)
-                                        RoundedRectangle(cornerRadius: 3)
-                                            .fill(job.status == "completed" ? Color.mfSuccess : Color.mfPrimary)
-                                            .frame(width: geo.size.width * job.progressPercent / 100.0, height: 6)
-                                    }
-                                }
-                                .frame(height: 6)
+                                StatChip(label: "GPU COST", value: job.formattedCloudCost, color: .mfPrimary)
                             }
                         }
-                        .frame(minWidth: 200)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.mfSurface.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        HStack(spacing: 12) {
+                            if job.status == "transferring", let tp = transferProgress {
+                                // Transfer speed/ETA chips
+                                HStack(spacing: 0) {
+                                    StatChip(label: "SPEED", value: tp.speed)
+                                    Divider().frame(height: 24).padding(.horizontal, 8)
+                                    StatChip(label: "ETA", value: tp.formattedETA)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.mfSurface.opacity(0.5))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            } else if job.isActive {
+                                // Transcode speed/ETA chips
+                                HStack(spacing: 0) {
+                                    StatChip(label: "SPEED", value: job.currentFps.map { String(format: "%.1f FPS", $0) } ?? "--")
+                                    Divider().frame(height: 24).padding(.horizontal, 8)
+                                    StatChip(label: "ETA", value: job.formattedETA)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.mfSurface.opacity(0.5))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+
+                            // Progress bar
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(job.status == "transferring" ? transferStatusLabel : job.statusDisplayName)
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(statusColor)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    if job.status == "transferring", let tp = transferProgress {
+                                        Text("\(Int(tp.progress))%")
+                                            .font(.mfMonoSmall)
+                                            .foregroundColor(.mfTextSecondary)
+                                    } else if job.status != "failed" {
+                                        Text("\(Int(job.progressPercent))%")
+                                            .font(.mfMonoSmall)
+                                            .foregroundColor(.mfTextSecondary)
+                                    }
+                                }
+
+                                if job.status == "failed" {
+                                    if let log = job.ffmpegLog, !log.isEmpty {
+                                        let errorLine = log.components(separatedBy: "\n").last(where: { !$0.isEmpty }) ?? log
+                                        Text(errorLine)
+                                            .font(.system(size: 11, design: .monospaced))
+                                            .foregroundColor(.mfError.opacity(0.8))
+                                            .lineLimit(2)
+                                    }
+                                } else if job.status == "transferring" {
+                                    GeometryReader { geo in
+                                        ZStack(alignment: .leading) {
+                                            RoundedRectangle(cornerRadius: 3)
+                                                .fill(Color.mfSurface)
+                                                .frame(height: 6)
+                                            RoundedRectangle(cornerRadius: 3)
+                                                .fill(Color.mfPrimary)
+                                                .frame(width: geo.size.width * (transferProgress?.progress ?? 0) / 100.0, height: 6)
+                                                .animation(.linear(duration: 0.3), value: transferProgress?.progress)
+                                        }
+                                    }
+                                    .frame(height: 6)
+                                } else {
+                                    GeometryReader { geo in
+                                        ZStack(alignment: .leading) {
+                                            RoundedRectangle(cornerRadius: 3)
+                                                .fill(Color.mfSurface)
+                                                .frame(height: 6)
+                                            RoundedRectangle(cornerRadius: 3)
+                                                .fill(Color.mfPrimary)
+                                                .frame(width: geo.size.width * job.progressPercent / 100.0, height: 6)
+                                        }
+                                    }
+                                    .frame(height: 6)
+                                }
+                            }
+                            .frame(minWidth: 200)
+                        }
                     }
                 }
             }
@@ -305,6 +337,7 @@ struct TranscodeJobCardView: View {
 struct StatChip: View {
     let label: String
     let value: String
+    var color: Color = .mfSuccess
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -314,7 +347,7 @@ struct StatChip: View {
                 .tracking(0.5)
             Text(value)
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .foregroundColor(.mfSuccess)
+                .foregroundColor(color)
         }
     }
 }

@@ -53,6 +53,7 @@ class WorkerServerResponse(BaseModel):
     cloud_auto_teardown: bool = True
     cloud_idle_minutes: int = 30
     cloud_status: Optional[str] = None
+    cloud_idle_since: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

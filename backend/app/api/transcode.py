@@ -5,7 +5,8 @@ from typing import Optional
 from app.database import get_session
 from app.schemas.transcode import (
     TranscodeJobCreate, TranscodeJobResponse, TranscodeJobUpdate,
-    QueueStatsResponse, DryRunResponse,
+    QueueStatsResponse, DryRunResponse, ProbeRequest, ProbeResponse,
+    ManualTranscodeRequest,
 )
 from app.services.transcode_service import TranscodeService
 from app.api.websocket import manager
@@ -115,6 +116,52 @@ async def clear_transcode_cache():
 async def get_queue_stats(session: AsyncSession = Depends(get_session)):
     service = TranscodeService(session)
     return await service.get_queue_stats()
+
+
+@router.post("/probe", response_model=ProbeResponse)
+async def probe_file_endpoint(request: ProbeRequest):
+    """Run ffprobe on a local file and return media info."""
+    import os
+    from app.utils.ffprobe import probe_file
+
+    if not os.path.exists(request.file_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {request.file_path}")
+
+    info = await probe_file(request.file_path)
+    if not info:
+        raise HTTPException(status_code=422, detail="ffprobe failed to read file")
+
+    video = info.video_streams[0] if info.video_streams else {}
+    audio = info.audio_streams[0] if info.audio_streams else {}
+    width = video.get("width")
+    height = video.get("height")
+    resolution = f"{width}x{height}" if width and height else None
+
+    return ProbeResponse(
+        file_path=request.file_path,
+        file_size=info.size,
+        duration_seconds=info.duration,
+        video_codec=info.video_codec,
+        resolution=resolution,
+        bitrate=info.bitrate,
+        audio_codec=audio.get("codec_name"),
+        audio_channels=audio.get("channels"),
+    )
+
+
+@router.post("/manual")
+async def create_manual_transcode_job(
+    request: ManualTranscodeRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Create a transcode job for a local file (not from Plex)."""
+    import os
+    if not os.path.exists(request.file_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {request.file_path}")
+
+    service = TranscodeService(session)
+    job = await service.create_manual_job(request)
+    return {"status": "created", "jobs_created": 1, "job_ids": [job.id]}
 
 
 @router.post("/dry-run", response_model=DryRunResponse)

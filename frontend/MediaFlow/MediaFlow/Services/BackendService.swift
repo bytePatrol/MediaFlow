@@ -67,6 +67,15 @@ class BackendService {
         return try await client.post("/api/transcode/jobs", body: request)
     }
 
+    func probeFile(path: String) async throws -> ProbeResult {
+        struct ProbeReq: Codable { let filePath: String }
+        return try await client.post("/api/transcode/probe", body: ProbeReq(filePath: path))
+    }
+
+    func createManualTranscodeJob(request: ManualTranscodeRequest) async throws -> TranscodeJobCreateResponse {
+        return try await client.post("/api/transcode/manual", body: request)
+    }
+
     func getTranscodeJobs(status: String? = nil, page: Int = 1) async throws -> PaginatedJobResponse {
         var items: [URLQueryItem] = [URLQueryItem(name: "page", value: "\(page)")]
         if let status = status { items.append(URLQueryItem(name: "status", value: status)) }

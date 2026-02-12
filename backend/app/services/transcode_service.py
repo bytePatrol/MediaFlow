@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
 
@@ -13,9 +14,10 @@ from app.models.worker_server import WorkerServer
 from app.models.plex_library import PlexLibrary
 from app.models.plex_server import PlexServer
 from app.models.app_settings import AppSetting
+from app.models.cloud_cost import CloudCostRecord
 from app.schemas.transcode import (
     TranscodeJobCreate, TranscodeJobResponse, TranscodeJobUpdate,
-    QueueStatsResponse, DryRunResponse,
+    QueueStatsResponse, DryRunResponse, ManualTranscodeRequest,
 )
 from app.utils.ffmpeg import FFmpegCommandBuilder
 from app.utils.path_resolver import determine_transfer_mode
@@ -255,6 +257,91 @@ class TranscodeService:
 
         return jobs
 
+    async def create_manual_job(self, request: ManualTranscodeRequest) -> TranscodeJob:
+        """Create a transcode job for a local file (not from Plex library)."""
+        import os
+
+        preset = None
+        if request.preset_id:
+            result = await self.session.execute(
+                select(TranscodePreset).where(TranscodePreset.id == request.preset_id)
+            )
+            preset = result.scalar_one_or_none()
+
+        config = request.config or {}
+        if preset:
+            config = {
+                "video_codec": preset.video_codec,
+                "target_resolution": preset.target_resolution,
+                "bitrate_mode": preset.bitrate_mode,
+                "crf_value": preset.crf_value,
+                "target_bitrate": preset.target_bitrate,
+                "hw_accel": preset.hw_accel,
+                "audio_mode": preset.audio_mode,
+                "audio_codec": preset.audio_codec,
+                "container": preset.container,
+                "subtitle_mode": preset.subtitle_mode,
+                "custom_flags": preset.custom_flags,
+                "hdr_mode": preset.hdr_mode,
+                "two_pass": preset.two_pass,
+                "encoder_tune": preset.encoder_tune,
+                **config,
+            }
+
+        file_path = request.file_path
+        file_size = request.file_size or os.path.getsize(file_path)
+
+        worker_id, transfer_mode, worker_input_path = await self._assign_worker(
+            file_path,
+            plex_server_has_ssh=False,
+            preferred_worker_id=request.preferred_worker_id,
+        )
+
+        if worker_id:
+            config = await self._maybe_upgrade_to_nvenc(worker_id, config)
+
+        # Build ffmpeg command
+        effective_input = worker_input_path or file_path
+        builder = FFmpegCommandBuilder(config, effective_input)
+        ffmpeg_command = builder.build()
+
+        # Override output path to "{name} V2.{container}" instead of ".mediaflow.{ext}"
+        container = config.get("container", "mkv")
+        source_dir = os.path.dirname(effective_input)
+        source_stem = os.path.splitext(os.path.basename(effective_input))[0]
+        v2_output = os.path.join(source_dir, f"{source_stem} V2.{container}")
+
+        # Rewrite the last argument of the ffmpeg command to the V2 path
+        import shlex
+        parts = shlex.split(ffmpeg_command)
+        parts[-1] = v2_output
+        ffmpeg_command = " ".join(shlex.quote(p) if " " in p or "(" in p else p for p in parts)
+
+        job = TranscodeJob(
+            media_item_id=None,
+            preset_id=request.preset_id,
+            config_json=config,
+            status="queued",
+            priority=request.priority,
+            source_path=file_path,
+            source_size=file_size,
+            is_dry_run=False,
+            worker_server_id=worker_id,
+            transfer_mode=transfer_mode,
+            worker_input_path=worker_input_path,
+            output_path=v2_output,
+            ffmpeg_command=ffmpeg_command,
+        )
+
+        self.session.add(job)
+        await self.session.commit()
+        await self.session.refresh(job)
+
+        if job.worker_server_id is None:
+            await self._maybe_auto_deploy_cloud(1)
+
+        return job
+
     async def _maybe_auto_deploy_cloud(self, job_count: int):
         """Trigger a cloud GPU deploy if auto-deploy is enabled and no workers are provisioning."""
         try:
@@ -375,6 +462,17 @@ class TranscodeService:
                     select(MediaItem.title).where(MediaItem.id == job.media_item_id)
                 )
                 resp.media_title = media_result.scalar_one_or_none()
+            elif job.source_path:
+                resp.media_title = os.path.basename(job.source_path)
+            if job.status == "completed" and job.worker_server_id:
+                cost_result = await self.session.execute(
+                    select(CloudCostRecord.cost_usd).where(
+                        CloudCostRecord.job_id == job.id,
+                        CloudCostRecord.record_type == "job",
+                    )
+                )
+                cost_val = cost_result.scalars().first()
+                resp.cloud_cost_usd = cost_val
             job_responses.append(resp)
 
         return {
@@ -397,6 +495,16 @@ class TranscodeService:
                 select(MediaItem.title).where(MediaItem.id == job.media_item_id)
             )
             resp.media_title = media_result.scalar_one_or_none()
+        elif job.source_path:
+            resp.media_title = os.path.basename(job.source_path)
+        if job.status == "completed" and job.worker_server_id:
+            cost_result = await self.session.execute(
+                select(CloudCostRecord.cost_usd).where(
+                    CloudCostRecord.job_id == job.id,
+                    CloudCostRecord.record_type == "job",
+                )
+            )
+            resp.cloud_cost_usd = cost_result.scalars().first()
         return resp
 
     async def update_job(self, job_id: int, update: TranscodeJobUpdate) -> Optional[TranscodeJob]:
@@ -456,7 +564,9 @@ class TranscodeService:
             counts[status] = result.scalar() or 0
 
         active_result = await self.session.execute(
-            select(TranscodeJob).where(TranscodeJob.status == "transcoding")
+            select(TranscodeJob).where(
+                TranscodeJob.status.in_(["transcoding", "transferring", "verifying", "replacing"])
+            )
         )
         active_jobs = active_result.scalars().all()
         aggregate_fps = sum(j.current_fps or 0 for j in active_jobs)

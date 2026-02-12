@@ -48,7 +48,7 @@ chmod +x run.sh
 |------|-------|
 | Backend Python files | ~70 |
 | Frontend Swift files | ~58 |
-| API endpoints | 63 (57 original + 6 cloud) |
+| API endpoints | 65 (57 original + 6 cloud + 2 manual transcode) |
 | Database models (tables) | 15 |
 | Backend services | 13 |
 | Background workers | 5 (transcode, health, cloud_monitor, sync, scheduler) |
@@ -167,7 +167,7 @@ Backend (Python FastAPI, port 9876)
 | `/api/health` | health.py | 1 | Health check |
 | `/api/plex` | plex.py | 9 | Plex OAuth, server mgmt, sync |
 | `/api/library` | library.py | 5 | Media queries, stats, export |
-| `/api/transcode` | transcode.py | 8 | Job CRUD, queue, dry-run |
+| `/api/transcode` | transcode.py | 10 | Job CRUD, queue, dry-run, **probe, manual** |
 | `/api/presets` | presets.py | 5 | Encoding preset CRUD |
 | `/api/servers` | servers.py | 12 | Workers, provision, benchmark |
 | `/api/analytics` | analytics.py | 6 | Stats, charts, savings |
@@ -186,7 +186,7 @@ Backend (Python FastAPI, port 9876)
 |-------------|-------|-----------|
 | Navigation | ContentView, SidebarView | — |
 | Library | LibraryDashboardView, MediaTableView, MediaRowView, FilterSidebarView, FilterPillBarView | LibraryViewModel |
-| Transcode | ProcessingQueueView, TranscodeConfigModal, TranscodeJobCardView, ActiveJobsDockView | TranscodeViewModel, TranscodeConfigViewModel |
+| Transcode | ProcessingQueueView, **ManualTranscodeView**, TranscodeConfigModal, TranscodeJobCardView, ActiveJobsDockView | TranscodeViewModel, TranscodeConfigViewModel |
 | Servers | ServerManagementView, ServerCardView, AddServerSheet, **CloudDeployPanel**, ServerComparisonView | ServerManagementViewModel |
 | Analytics | AnalyticsDashboardView, StatisticsCardView | AnalyticsViewModel |
 | Intelligence | RecommendationsView, RecommendationCardView | RecommendationViewModel |
@@ -406,6 +406,62 @@ Backend (Python FastAPI, port 9876)
 #### Commits
 - `fe495c9` — Add cloud auto-deploy when no workers available for queued jobs
 
+### Manual Transcode (Quick Transcode) — Implemented 2026-02-12
+
+**Feature**: Transcode arbitrary local files (not in Plex) through the same GPU worker infrastructure. A collapsible "Quick Transcode" section at the top of the Processing tab lets users pick a local file, configure encoding settings, and start a job. Output is saved as `{name} V2.{ext}` alongside the original (no in-place replacement).
+
+#### What Was Built
+
+**Backend**:
+1. **`POST /api/transcode/probe`** — Runs ffprobe on a local file, returns codec, resolution, bitrate, duration, size, audio codec/channels
+2. **`POST /api/transcode/manual`** — Creates a transcode job for a local file with `media_item_id=None`
+3. **`TranscodeService.create_manual_job()`** — Loads preset, assigns worker, auto-upgrades to NVENC, builds ffmpeg command with V2 output naming (`{stem} V2.{container}`)
+4. **`get_jobs()` / `get_job()` filename fallback** — When `media_item_id` is None, `media_title` falls back to `os.path.basename(source_path)`
+5. **Worker changes for manual jobs**:
+   - `_handle_success()` — Skips `_replace_original()` when `media_item_id is None`
+   - `_execute_remote_transfer()` — Downloads to V2 path for manual jobs; skips NAS replacement
+   - `_execute_ssh_pull()` — Skips NAS replacement for manual jobs
+   - `_execute_local()` / `_execute_remote_transfer()` — Probes source file for duration when no media item (enables progress tracking)
+
+**Frontend**:
+1. **`ManualTranscodeView.swift`** (NEW) — Collapsible inline section with:
+   - Drag-and-drop / NSOpenPanel file picker (filters: mkv, mp4, avi, mov, wmv, ts, m4v, webm)
+   - Probe result display (resolution, codec, bitrate, size, duration, audio info)
+   - Preset selector (horizontal scroll of preset cards from `GET /api/presets/`)
+   - Codec segmented control (HEVC / AV1 / H.264)
+   - Container segmented control (MKV / MP4)
+   - Resolution dropdown (Source, 4K, 1080p, 720p, SD)
+   - Quality CRF slider (15–35)
+   - Audio mode toggle (Copy / Re-encode)
+   - Server picker (Auto + available servers)
+   - Start Transcode button (calls `POST /api/transcode/manual`)
+2. **`ProcessingQueueView.swift`** — Embedded `ManualTranscodeView` between warning banners and main HSplitView
+3. **`TranscodeJob.swift`** — Added `ProbeResult` (with formatted helpers) and `ManualTranscodeRequest` structs
+4. **`BackendService.swift`** — Added `probeFile(path:)` and `createManualTranscodeJob(request:)` methods
+
+#### Key Design Decisions
+- `media_item_id=None` distinguishes manual jobs from Plex jobs throughout the pipeline
+- Output path: `{dir}/{stem} V2.{container}` — never replaces the original
+- Worker scoring/assignment reuses the existing `_assign_worker()` with `plex_server_has_ssh=False`
+- NVENC auto-upgrade still applies to manual jobs (GPU workers get GPU codecs)
+- Created jobs appear in the existing job list via WebSocket flow — no separate UI needed
+
+#### Files Modified
+- `backend/app/schemas/transcode.py` — Added `ProbeRequest`, `ProbeResponse`, `ManualTranscodeRequest`
+- `backend/app/api/transcode.py` — Added `POST /probe` and `POST /manual` endpoints
+- `backend/app/services/transcode_service.py` — Added `create_manual_job()`, filename fallback in `get_jobs()`/`get_job()`
+- `backend/app/workers/transcode_worker.py` — Skip replacement for manual jobs, V2 output naming, duration probe fallback
+- `frontend/.../Models/TranscodeJob.swift` — Added `ProbeResult`, `ManualTranscodeRequest`
+- `frontend/.../Services/BackendService.swift` — Added `probeFile()`, `createManualTranscodeJob()`
+- `frontend/.../Views/Transcode/ManualTranscodeView.swift` — **NEW** (file picker + settings + start button)
+- `frontend/.../Views/Transcode/ProcessingQueueView.swift` — Embedded `ManualTranscodeView`
+
+#### Schemas Added
+```python
+class ProbeResponse:  # file_path, file_size, duration_seconds, video_codec, resolution, bitrate, audio_codec, audio_channels
+class ManualTranscodeRequest:  # file_path, file_size, config, preset_id, priority, preferred_worker_id
+```
+
 ### Current Path Mappings (stored in app_settings)
 - `/share/ZFS18_DATA/Media` → `/Volumes/media` (TrueNAS SMB mount)
 
@@ -482,6 +538,9 @@ asyncssh>=2.14.0
 1. ~~**Path mappings UI**~~ — **DONE** (2026-02-12). Settings → Storage tab with source/local path mapping CRUD.
 2. ~~**Bulk transcode from library**~~ — **DONE** (2026-02-12, commit `58dfd69`). Cross-page select-all-filtered support.
 3. ~~**Cloud worker auto-deploy on queue**~~ — **DONE** (2026-02-12). See below.
+
+### Completed (2026-02-12 session 2)
+- ~~**Manual Transcode / Quick Transcode**~~ — **DONE.** Local file transcode with file picker, probe, preset system, V2 output naming. Works with local and remote workers.
 
 ### Medium Priority
 4. **Custom tagging system frontend** — Backend model (CustomTag, MediaTag) exists. Need UI for creating tags, applying to media items, filtering by tags.

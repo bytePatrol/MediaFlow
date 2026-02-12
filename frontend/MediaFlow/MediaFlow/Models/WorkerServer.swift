@@ -51,6 +51,7 @@ struct WorkerServer: Identifiable, Codable {
     var cloudAutoTeardown: Bool = true
     var cloudIdleMinutes: Int = 30
     var cloudStatus: String?    // "creating", "bootstrapping", "active", "destroying", "destroyed"
+    var cloudIdleSince: String?
 
     var isCloud: Bool { cloudProvider != nil }
 }

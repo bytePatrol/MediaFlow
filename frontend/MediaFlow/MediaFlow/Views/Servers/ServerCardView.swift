@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct ServerCardView: View {
     let server: WorkerServer
@@ -19,6 +20,7 @@ struct ServerCardView: View {
     var onTeardown: (() -> Void)? = nil
     @State private var showingLogs = false
     @State private var showTeardownConfirm = false
+    @State private var now = Date()
 
     var statusColor: Color {
         if !server.isEnabled { return .mfTextMuted }
@@ -40,12 +42,23 @@ struct ServerCardView: View {
         }
     }
 
+    var idleCountdown: (remaining: Int, total: Int)? {
+        guard server.isCloud,
+              server.cloudStatus == "active",
+              server.cloudAutoTeardown,
+              let idleSince = server.cloudIdleSince else { return nil }
+        guard let idleDate = parseDate(idleSince) else { return nil }
+        let idleSeconds = Int(now.timeIntervalSince(idleDate))
+        let totalSeconds = server.cloudIdleMinutes * 60
+        let remaining = totalSeconds - idleSeconds
+        if remaining < 0 { return (0, totalSeconds) }
+        return (remaining, totalSeconds)
+    }
+
     var cloudRunningTime: String? {
         guard server.isCloud, let created = server.cloudCreatedAt else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = formatter.date(from: created) ?? ISO8601DateFormatter().date(from: created) else { return nil }
-        let elapsed = Date().timeIntervalSince(date)
+        guard let date = parseDate(created) else { return nil }
+        let elapsed = now.timeIntervalSince(date)
         let hours = Int(elapsed) / 3600
         let minutes = (Int(elapsed) % 3600) / 60
         let cost = elapsed / 3600 * (server.hourlyCost ?? 0)
@@ -390,6 +403,39 @@ struct ServerCardView: View {
             }
             .padding(16)
 
+            // Idle countdown bar for cloud GPU
+            if let countdown = idleCountdown {
+                VStack(spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "timer")
+                            .font(.system(size: 10))
+                            .foregroundColor(countdown.remaining < 300 ? .mfWarning : .mfTextMuted)
+                        Text("Auto-teardown in \(formatCountdown(countdown.remaining))")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(countdown.remaining < 300 ? .mfWarning : .mfTextSecondary)
+                        Spacer()
+                        Text("IDLE")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.mfTextMuted)
+                            .tracking(0.5)
+                    }
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.mfSurfaceLight)
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(countdown.remaining < 300 ? Color.mfWarning : Color.mfPrimary)
+                                .frame(width: geo.size.width * CGFloat(countdown.remaining) / CGFloat(max(countdown.total, 1)))
+                        }
+                    }
+                    .frame(height: 4)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color.mfSurface.opacity(0.3))
+                .overlay(Rectangle().frame(height: 1).foregroundColor(.mfGlassBorder), alignment: .top)
+            }
+
             // Footer
             HStack {
                 if server.isCloud, let runTime = cloudRunningTime {
@@ -495,6 +541,29 @@ struct ServerCardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.mfPrimary.opacity(0.1)))
         .opacity(server.status == "offline" && server.isEnabled ? 0.6 : (server.isEnabled ? 1.0 : 0.4))
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            if server.cloudIdleSince != nil {
+                now = Date()
+            }
+        }
+    }
+
+    private func parseDate(_ str: String) -> Date? {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = iso.date(from: str) { return d }
+        // Backend datetimes lack timezone — append Z and retry
+        if let d = iso.date(from: str + "Z") { return d }
+        iso.formatOptions = [.withInternetDateTime]
+        if let d = iso.date(from: str) { return d }
+        if let d = iso.date(from: str + "Z") { return d }
+        return nil
+    }
+
+    private func formatCountdown(_ seconds: Int) -> String {
+        let m = seconds / 60
+        let s = seconds % 60
+        return String(format: "%d:%02d", m, s)
     }
 
     private func scoreColor(_ score: Double) -> Color {

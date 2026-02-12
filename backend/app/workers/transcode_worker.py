@@ -205,6 +205,13 @@ class TranscodeWorker:
 
         media = await self._get_media(job, session)
         total_duration = (media.duration_ms / 1000) if media and media.duration_ms else 0
+
+        # For manual jobs (no media item), probe the source to get duration
+        if total_duration == 0 and job.source_path:
+            probe_info = await probe_file(job.source_path)
+            if probe_info:
+                total_duration = probe_info.duration
+
         start_time = time.time()
 
         process = await asyncio.create_subprocess_shell(
@@ -392,6 +399,12 @@ class TranscodeWorker:
         logger.info(f"Job {job.id}: running ffmpeg on {worker.hostname}")
         total_duration = (media.duration_ms / 1000) if media and media.duration_ms else 0
 
+        # For manual jobs (no media item), probe the source to get duration
+        if total_duration == 0 and job.source_path and os.path.exists(job.source_path):
+            probe_info = await probe_file(job.source_path)
+            if probe_info:
+                total_duration = probe_info.duration
+
         if worker.cloud_provider:
             # Use streaming SSH for real-time progress on cloud workers
             async def _ffmpeg_line_cb(line: str):
@@ -529,47 +542,59 @@ class TranscodeWorker:
             if worker.cloud_provider:
                 await self._record_cloud_job_cost(worker, job, start_time, session)
 
-            # Replace original on NAS
-            job.status_detail = "Replacing original file on Plex NAS..."
-            await session.commit()
-            await manager.broadcast("job.log", {
-                "job_id": job.id, "message": job.status_detail,
-            })
-            backup_path = job.source_path + ".original"
-            original_ext = os.path.splitext(job.source_path)[1]
-            output_ext = os.path.splitext(nas_remote_output)[1]
-            final_remote = (
-                os.path.splitext(job.source_path)[0] + output_ext
-                if original_ext != output_ext else job.source_path
-            )
-
-            rename_cmds = " && ".join([
-                f"mv {shlex.quote(job.source_path)} {shlex.quote(backup_path)}",
-                f"mv {shlex.quote(nas_remote_output)} {shlex.quote(final_remote)}",
-                f"rm -f {shlex.quote(backup_path)}",
-            ])
-            replace_result = await nas_ssh.run_command(rename_cmds)
-            if replace_result["exit_status"] != 0:
-                logger.error(f"Job {job.id}: NAS replacement failed: {replace_result.get('stderr', '')}")
-                await nas_ssh.run_command(
-                    f"test -f {shlex.quote(backup_path)} && mv {shlex.quote(backup_path)} {shlex.quote(job.source_path)}"
+            if job.media_item_id is not None:
+                # Replace original on NAS
+                job.status_detail = "Replacing original file on Plex NAS..."
+                await session.commit()
+                await manager.broadcast("job.log", {
+                    "job_id": job.id, "message": job.status_detail,
+                })
+                backup_path = job.source_path + ".original"
+                original_ext = os.path.splitext(job.source_path)[1]
+                output_ext = os.path.splitext(nas_remote_output)[1]
+                final_remote = (
+                    os.path.splitext(job.source_path)[0] + output_ext
+                    if original_ext != output_ext else job.source_path
                 )
 
-            # Get output size from NAS
-            size_result = await nas_ssh.run_command(
-                f"stat -c %s {shlex.quote(final_remote)} 2>/dev/null || stat -f %z {shlex.quote(final_remote)}"
-            )
-            if size_result["exit_status"] == 0:
-                try:
-                    job.output_size = int(size_result["stdout"].strip())
-                except ValueError:
-                    pass
+                rename_cmds = " && ".join([
+                    f"mv {shlex.quote(job.source_path)} {shlex.quote(backup_path)}",
+                    f"mv {shlex.quote(nas_remote_output)} {shlex.quote(final_remote)}",
+                    f"rm -f {shlex.quote(backup_path)}",
+                ])
+                replace_result = await nas_ssh.run_command(rename_cmds)
+                if replace_result["exit_status"] != 0:
+                    logger.error(f"Job {job.id}: NAS replacement failed: {replace_result.get('stderr', '')}")
+                    await nas_ssh.run_command(
+                        f"test -f {shlex.quote(backup_path)} && mv {shlex.quote(backup_path)} {shlex.quote(job.source_path)}"
+                    )
 
-            # Update media item if extension changed
-            if media and final_remote != job.source_path:
-                media.file_path = final_remote
-                media.file_size = job.output_size
-                await session.commit()
+                # Get output size from NAS
+                size_result = await nas_ssh.run_command(
+                    f"stat -c %s {shlex.quote(final_remote)} 2>/dev/null || stat -f %z {shlex.quote(final_remote)}"
+                )
+                if size_result["exit_status"] == 0:
+                    try:
+                        job.output_size = int(size_result["stdout"].strip())
+                    except ValueError:
+                        pass
+
+                # Update media item if extension changed
+                if media and final_remote != job.source_path:
+                    media.file_path = final_remote
+                    media.file_size = job.output_size
+                    await session.commit()
+            else:
+                # Manual job — output stays at the relayed path (no replacement)
+                final_remote = nas_remote_output
+                size_result = await nas_ssh.run_command(
+                    f"stat -c %s {shlex.quote(final_remote)} 2>/dev/null || stat -f %z {shlex.quote(final_remote)}"
+                )
+                if size_result["exit_status"] == 0:
+                    try:
+                        job.output_size = int(size_result["stdout"].strip())
+                    except ValueError:
+                        pass
 
             # Mark completed
             job.status = "completed"
@@ -610,6 +635,13 @@ class TranscodeWorker:
                 base = os.path.splitext(local_source)[0]
                 container = config.get("container", "mkv")
                 local_output = f"{base}.mediaflow.{container}"
+
+            # For manual jobs (no media_item_id), ensure output goes to V2 path
+            if job.media_item_id is None and local_output:
+                source_dir = os.path.dirname(job.source_path)
+                source_stem = os.path.splitext(os.path.basename(job.source_path))[0]
+                container = (job.config_json or {}).get("container", "mkv")
+                local_output = os.path.join(source_dir, f"{source_stem} V2.{container}")
 
             dl_label = f"Downloading converted file from {worker_label}"
             job.status = "transferring"
@@ -814,33 +846,36 @@ class TranscodeWorker:
             await manager.broadcast("job.failed", {"job_id": job.id, "error": job.ffmpeg_log})
             return
 
-        # Step 4: Replace original on NAS via SSH
-        job.status_detail = "Replacing original file on Plex NAS..."
-        await session.commit()
-        await manager.broadcast("job.log", {
-            "job_id": job.id,
-            "message": job.status_detail,
-        })
-        backup_path = remote_source + ".original"
-        original_ext = os.path.splitext(remote_source)[1]
-        output_ext = os.path.splitext(remote_output)[1]
-        if original_ext != output_ext:
-            final_remote = os.path.splitext(remote_source)[0] + output_ext
-        else:
-            final_remote = remote_source
+        # Step 4: Replace original on NAS via SSH (skip for manual jobs)
+        if job.media_item_id is not None:
+            job.status_detail = "Replacing original file on Plex NAS..."
+            await session.commit()
+            await manager.broadcast("job.log", {
+                "job_id": job.id,
+                "message": job.status_detail,
+            })
+            backup_path = remote_source + ".original"
+            original_ext = os.path.splitext(remote_source)[1]
+            output_ext = os.path.splitext(remote_output)[1]
+            if original_ext != output_ext:
+                final_remote = os.path.splitext(remote_source)[0] + output_ext
+            else:
+                final_remote = remote_source
 
-        rename_cmds = " && ".join([
-            f"mv {shlex.quote(remote_source)} {shlex.quote(backup_path)}",
-            f"mv {shlex.quote(remote_output)} {shlex.quote(final_remote)}",
-            f"rm -f {shlex.quote(backup_path)}",
-        ])
-        replace_result = await ssh.run_command(rename_cmds)
-        if replace_result["exit_status"] != 0:
-            logger.error(f"Job {job.id}: remote replacement failed: {replace_result.get('stderr', '')}")
-            # Try to restore backup
-            await ssh.run_command(
-                f"test -f {shlex.quote(backup_path)} && mv {shlex.quote(backup_path)} {shlex.quote(remote_source)}"
-            )
+            rename_cmds = " && ".join([
+                f"mv {shlex.quote(remote_source)} {shlex.quote(backup_path)}",
+                f"mv {shlex.quote(remote_output)} {shlex.quote(final_remote)}",
+                f"rm -f {shlex.quote(backup_path)}",
+            ])
+            replace_result = await ssh.run_command(rename_cmds)
+            if replace_result["exit_status"] != 0:
+                logger.error(f"Job {job.id}: remote replacement failed: {replace_result.get('stderr', '')}")
+                # Try to restore backup
+                await ssh.run_command(
+                    f"test -f {shlex.quote(backup_path)} && mv {shlex.quote(backup_path)} {shlex.quote(remote_source)}"
+                )
+        else:
+            final_remote = remote_output
 
         # Step 5: Clean up local temp files
         for f in (local_source, local_output):
@@ -1096,8 +1131,9 @@ class TranscodeWorker:
             })
             return
 
-        # Phase 6: In-place replacement of original file
-        await self._replace_original(job, media, probe_path, session)
+        # Phase 6: In-place replacement of original file (skip for manual jobs)
+        if job.media_item_id is not None:
+            await self._replace_original(job, media, probe_path, session)
 
         job.status = "completed"
         job.progress_percent = 100.0

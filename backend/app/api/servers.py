@@ -83,7 +83,31 @@ async def get_available_servers(session: AsyncSession = Depends(get_session)):
 async def list_servers(session: AsyncSession = Depends(get_session)):
     result = await session.execute(select(WorkerServer).order_by(WorkerServer.name))
     servers = result.scalars().all()
-    return [WorkerServerResponse.model_validate(s) for s in servers]
+
+    responses = []
+    for s in servers:
+        resp = WorkerServerResponse.model_validate(s)
+        # Compute idle_since for active cloud servers
+        if s.cloud_provider and s.cloud_status == "active":
+            active_result = await session.execute(
+                select(TranscodeJob).where(
+                    TranscodeJob.worker_server_id == s.id,
+                    TranscodeJob.status.in_(["transcoding", "transferring", "queued", "verifying", "replacing"]),
+                ).limit(1)
+            )
+            if not active_result.scalar_one_or_none():
+                # Server is idle — find when it became idle
+                last_job_result = await session.execute(
+                    select(TranscodeJob.completed_at).where(
+                        TranscodeJob.worker_server_id == s.id,
+                        TranscodeJob.completed_at.isnot(None),
+                    ).order_by(TranscodeJob.completed_at.desc()).limit(1)
+                )
+                last_completed = last_job_result.scalar_one_or_none()
+                resp.cloud_idle_since = last_completed or s.cloud_created_at
+        responses.append(resp)
+
+    return responses
 
 
 @router.get("/{server_id}", response_model=WorkerServerResponse)
@@ -92,7 +116,24 @@ async def get_server(server_id: int, session: AsyncSession = Depends(get_session
     server = result.scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-    return server
+    resp = WorkerServerResponse.model_validate(server)
+    if server.cloud_provider and server.cloud_status == "active":
+        active_result = await session.execute(
+            select(TranscodeJob).where(
+                TranscodeJob.worker_server_id == server.id,
+                TranscodeJob.status.in_(["transcoding", "transferring", "queued", "verifying", "replacing"]),
+            ).limit(1)
+        )
+        if not active_result.scalar_one_or_none():
+            last_job_result = await session.execute(
+                select(TranscodeJob.completed_at).where(
+                    TranscodeJob.worker_server_id == server.id,
+                    TranscodeJob.completed_at.isnot(None),
+                ).order_by(TranscodeJob.completed_at.desc()).limit(1)
+            )
+            last_completed = last_job_result.scalar_one_or_none()
+            resp.cloud_idle_since = last_completed or server.cloud_created_at
+    return resp
 
 
 @router.put("/{server_id}", response_model=WorkerServerResponse)

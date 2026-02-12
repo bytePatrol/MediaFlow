@@ -10,11 +10,19 @@ struct ServerManagementView: View {
     @State private var showDestroyedCloud = false
 
     private var activeServers: [WorkerServer] {
-        viewModel.servers.filter { !($0.isCloud && ($0.cloudStatus == "destroyed" || $0.cloudStatus == "destroying")) }
+        viewModel.servers.filter { server in
+            guard server.isCloud else { return true }
+            let alive = ["creating", "bootstrapping", "active"]
+            return alive.contains(server.cloudStatus ?? "")
+        }
     }
 
     private var destroyedCloudServers: [WorkerServer] {
-        viewModel.servers.filter { $0.isCloud && ($0.cloudStatus == "destroyed" || $0.cloudStatus == "destroying") }
+        viewModel.servers.filter { server in
+            guard server.isCloud else { return false }
+            let alive = ["creating", "bootstrapping", "active"]
+            return !alive.contains(server.cloudStatus ?? "")
+        }
     }
 
     var body: some View {

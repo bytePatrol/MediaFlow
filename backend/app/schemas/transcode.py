@@ -97,6 +97,7 @@ class TranscodeJobResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     media_title: Optional[str] = None
+    cloud_cost_usd: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
@@ -122,3 +123,27 @@ class DryRunResponse(BaseModel):
     estimated_output_size: Optional[int] = None
     estimated_duration: Optional[int] = None
     estimated_reduction_percent: Optional[float] = None
+
+
+class ProbeRequest(BaseModel):
+    file_path: str
+
+
+class ProbeResponse(BaseModel):
+    file_path: str
+    file_size: int
+    duration_seconds: float
+    video_codec: Optional[str] = None
+    resolution: Optional[str] = None
+    bitrate: Optional[int] = None
+    audio_codec: Optional[str] = None
+    audio_channels: Optional[int] = None
+
+
+class ManualTranscodeRequest(BaseModel):
+    file_path: str
+    file_size: Optional[int] = None
+    config: Optional[dict] = None
+    preset_id: Optional[int] = None
+    priority: int = 10
+    preferred_worker_id: Optional[int] = None

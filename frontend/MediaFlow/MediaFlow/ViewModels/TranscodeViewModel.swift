@@ -243,11 +243,12 @@ class TranscodeViewModel: ObservableObject {
                    let index = self.jobs.firstIndex(where: { $0.id == jobId }) {
                     self.jobs[index].status = status
                     self.activeJobs = self.jobs.filter { $0.isActive }
-                    // Clear transfer progress and phase label when leaving transferring state
+                    // Clear stale state from previous phase on status change
                     if status != "transferring" {
                         self.jobTransferProgress.removeValue(forKey: jobId)
-                        self.jobPhaseLabel.removeValue(forKey: jobId)
                     }
+                    self.jobPhaseLabel.removeValue(forKey: jobId)
+                    self.jobLogMessages.removeValue(forKey: jobId)
                 }
                 await self.loadJobs()
             }
