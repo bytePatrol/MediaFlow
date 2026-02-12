@@ -54,7 +54,7 @@ struct CloudDeployPanelContent: View {
     var onDeploy: () -> Void
 
     @State private var plans: [CloudPlanInfo] = []
-    @State private var selectedPlan: String = "vcg-a16-8c-64g-16vram"
+    @State private var selectedPlan: String = "vcg-a16-6c-64g-16vram"
     @State private var selectedRegion: String = "ewr"
     @State private var idleMinutes: Double = 30
     @State private var autoTeardown: Bool = true

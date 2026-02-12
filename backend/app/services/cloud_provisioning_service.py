@@ -1,10 +1,10 @@
 import asyncio
 import logging
-import os
 import time
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from sqlalchemy import select
 
 from app.database import async_session_factory
@@ -12,7 +12,7 @@ from app.models.worker_server import WorkerServer
 from app.models.cloud_cost import CloudCostRecord
 from app.models.app_settings import AppSetting
 from app.api.websocket import manager
-from app.services.vultr_client import VultrClient, GPU_PLAN_INFO
+from app.services.vultr_client import VultrClient
 
 logger = logging.getLogger(__name__)
 
@@ -46,56 +46,6 @@ async def _get_vultr_client(session) -> VultrClient:
     return VultrClient(api_key)
 
 
-async def _ensure_ssh_key(vultr: VultrClient, session) -> str:
-    """Ensure a 'mediaflow' SSH key exists on Vultr. Returns the Vultr SSH key ID."""
-    # Check if we already have a stored key ID
-    stored_id = await _get_setting(session, "vultr_ssh_key_id")
-    if stored_id:
-        # Verify it still exists on Vultr
-        try:
-            keys = await vultr.get_ssh_keys()
-            if any(k["id"] == stored_id for k in keys):
-                return stored_id
-        except Exception:
-            pass
-
-    # Check if a "mediaflow" key already exists on Vultr
-    keys = await vultr.get_ssh_keys()
-    for k in keys:
-        if k.get("name") == "mediaflow":
-            await _set_setting(session, "vultr_ssh_key_id", k["id"])
-            return k["id"]
-
-    # Read local public key or generate one
-    pub_key_content = None
-    for key_name in ["id_ed25519.pub", "id_rsa.pub"]:
-        pub_path = Path.home() / ".ssh" / key_name
-        if pub_path.exists():
-            pub_key_content = pub_path.read_text().strip()
-            break
-
-    if not pub_key_content:
-        # Generate a new keypair for cloud use
-        cloud_key_dir = Path.home() / ".mediaflow"
-        cloud_key_dir.mkdir(exist_ok=True)
-        cloud_key_path = cloud_key_dir / "cloud_key"
-        if not cloud_key_path.exists():
-            proc = await asyncio.create_subprocess_exec(
-                "ssh-keygen", "-t", "ed25519", "-f", str(cloud_key_path),
-                "-N", "", "-C", "mediaflow-cloud",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.wait()
-        pub_key_content = (cloud_key_path.with_suffix(".pub")).read_text().strip()
-
-    # Upload to Vultr
-    key_data = await vultr.create_ssh_key("mediaflow", pub_key_content)
-    key_id = key_data["id"]
-    await _set_setting(session, "vultr_ssh_key_id", key_id)
-    return key_id
-
-
 def _get_ssh_key_path() -> str:
     """Get the local private key path to use for cloud SSH connections."""
     cloud_key = Path.home() / ".mediaflow" / "cloud_key"
@@ -108,8 +58,75 @@ def _get_ssh_key_path() -> str:
     return str(Path.home() / ".ssh" / "id_ed25519")
 
 
+def _get_local_public_key() -> str:
+    """Get the public key content matching _get_ssh_key_path()."""
+    private_path = Path(_get_ssh_key_path())
+    pub_path = private_path.with_suffix(".pub")
+    if not pub_path.exists():
+        # Try appending .pub to the full name (e.g., cloud_key → cloud_key.pub)
+        pub_path = Path(str(private_path) + ".pub")
+    if pub_path.exists():
+        return pub_path.read_text().strip()
+    return ""
+
+
+async def _ensure_ssh_key(vultr: VultrClient, session) -> str:
+    """Ensure a 'mediaflow' SSH key on Vultr matches our local key. Returns Vultr key ID."""
+    private_path = _get_ssh_key_path()
+    local_pub = _get_local_public_key()
+
+    if not local_pub:
+        # No local key — generate one
+        cloud_key_dir = Path.home() / ".mediaflow"
+        cloud_key_dir.mkdir(exist_ok=True)
+        cloud_key_path = cloud_key_dir / "cloud_key"
+        if not cloud_key_path.exists():
+            proc = await asyncio.create_subprocess_exec(
+                "ssh-keygen", "-t", "ed25519", "-f", str(cloud_key_path),
+                "-N", "", "-C", "mediaflow-cloud",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.wait()
+        local_pub = cloud_key_path.with_suffix(".pub").read_text().strip()
+        private_path = str(cloud_key_path)
+
+    logger.info(f"Cloud SSH: using private key {private_path}")
+
+    # Check existing keys on Vultr
+    keys = await vultr.get_ssh_keys()
+    for k in keys:
+        if k.get("name") == "mediaflow":
+            # Verify the key on Vultr matches our local key
+            remote_pub = k.get("ssh_key", "").strip()
+            if remote_pub == local_pub:
+                logger.info(f"Cloud SSH: reusing existing Vultr key {k['id']}")
+                await _set_setting(session, "vultr_ssh_key_id", k["id"])
+                return k["id"]
+            else:
+                # Key mismatch — delete the stale one and re-upload
+                logger.warning("Cloud SSH: Vultr 'mediaflow' key doesn't match local key, re-uploading")
+                try:
+                    async with httpx.AsyncClient(timeout=15) as client:
+                        resp = await client.delete(
+                            f"{vultr.BASE_URL}/ssh-keys/{k['id']}",
+                            headers=vultr._headers(),
+                        )
+                        logger.info(f"Deleted stale Vultr SSH key {k['id']}: {resp.status_code}")
+                except Exception as e:
+                    logger.error(f"Failed to delete stale SSH key: {e}")
+                break
+
+    # Upload our local public key
+    key_data = await vultr.create_ssh_key("mediaflow", local_pub)
+    key_id = key_data["id"]
+    await _set_setting(session, "vultr_ssh_key_id", key_id)
+    logger.info(f"Cloud SSH: uploaded new key to Vultr: {key_id}")
+    return key_id
+
+
 async def deploy_cloud_gpu(
-    plan: str = "vcg-a16-8c-64g-16vram",
+    plan: str = "vcg-a16-6c-64g-16vram",
     region: str = "ewr",
     idle_minutes: int = 30,
     auto_teardown: bool = True,
@@ -120,8 +137,12 @@ async def deploy_cloud_gpu(
     """
     async with async_session_factory() as session:
         vultr = await _get_vultr_client(session)
-        plan_info = GPU_PLAN_INFO.get(plan, {})
+
+        # Fetch real plan info from Vultr API
+        all_plans = await vultr.list_gpu_plans()
+        plan_info = next((p for p in all_plans if p["plan_id"] == plan), {})
         hourly_rate = plan_info.get("hourly_cost", 0)
+        gpu_model = plan_info.get("gpu_model", "GPU")
 
         # Step 1: Ensure SSH key
         await manager.broadcast("cloud.deploy_progress", {
@@ -134,7 +155,7 @@ async def deploy_cloud_gpu(
         label = f"mediaflow-gpu-{int(time.time())}"
         await manager.broadcast("cloud.deploy_progress", {
             "server_id": 0, "step": "create_instance", "progress": 10,
-            "message": f"Creating {plan_info.get('gpu_model', 'GPU')} instance in {region}...",
+            "message": f"Creating {gpu_model} instance in {region}...",
         })
 
         instance = await vultr.create_instance(
@@ -145,7 +166,7 @@ async def deploy_cloud_gpu(
 
         # Step 3: Create WorkerServer record
         server = WorkerServer(
-            name=f"Cloud GPU ({plan_info.get('gpu_model', plan)})",
+            name=f"Cloud GPU ({gpu_model or plan})",
             hostname="pending",
             port=22,
             ssh_username="root",
@@ -243,7 +264,7 @@ async def deploy_cloud_gpu(
     await manager.broadcast("cloud.deploy_completed", {
         "server_id": server_id,
         "instance_ip": ip_address,
-        "gpu_model": plan_info.get("gpu_model", "Unknown"),
+        "gpu_model": gpu_model or "Unknown",
     })
 
     logger.info(f"Cloud GPU deployed: server_id={server_id}, ip={ip_address}, plan={plan}")
@@ -282,30 +303,41 @@ async def _wait_for_ssh(ip_address: str, server_id: int):
     """Wait for SSH to become available on the instance."""
     from app.utils.ssh import SSHClient
 
-    max_wait = 180  # 3 minutes
+    max_wait = 600  # 10 minutes — Vultr cloud-init runs package updates before SSH
     interval = 10
     elapsed = 0
     ssh_key_path = _get_ssh_key_path()
+    last_error = ""
+
+    logger.info(f"Waiting for SSH on {ip_address} with key {ssh_key_path}")
 
     while elapsed < max_wait:
         try:
             ssh = SSHClient(ip_address, 22, "root", ssh_key_path)
-            if await ssh.test_connection():
+            connected = await asyncio.wait_for(
+                ssh.test_connection(),
+                timeout=20,
+            )
+            if connected:
+                logger.info(f"SSH connected to {ip_address} after {elapsed}s")
                 return
-        except Exception:
-            pass
+            last_error = "test_connection returned False"
+        except asyncio.TimeoutError:
+            last_error = "connection attempt timed out"
+        except Exception as e:
+            last_error = str(e)
 
-        progress = min(58, 50 + int(elapsed / max_wait * 8))
+        logger.debug(f"SSH attempt to {ip_address} failed ({elapsed}s): {last_error}")
         await manager.broadcast("cloud.deploy_progress", {
             "server_id": server_id, "step": "waiting_ssh",
-            "progress": progress,
-            "message": f"Waiting for SSH ({elapsed}s)...",
+            "progress": min(58, 50 + int(elapsed / max_wait * 8)),
+            "message": f"Waiting for SSH ({elapsed}s)... {last_error}",
         })
 
         await asyncio.sleep(interval)
         elapsed += interval
 
-    raise TimeoutError(f"SSH not available on {ip_address} within {max_wait}s")
+    raise TimeoutError(f"SSH not available on {ip_address} within {max_wait}s. Last error: {last_error}")
 
 
 async def _handle_deploy_failure(server_id: int, instance_id: str, vultr: VultrClient, error: str):

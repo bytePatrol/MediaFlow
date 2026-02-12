@@ -651,10 +651,10 @@ struct CloudGPUSettingsView: View {
     @State private var apiKeyPanel: CloudAPIKeyPanel?
 
     // Editable fields
-    @State private var monthlySpendCap: String = "100"
-    @State private var instanceSpendCap: String = "50"
+    @State private var monthlySpendCap: Double = 100
+    @State private var instanceSpendCap: Double = 50
     @State private var defaultIdleMinutes: Double = 30
-    @State private var selectedPlan: String = "vcg-a16-8c-64g-16vram"
+    @State private var selectedPlan: String = "vcg-a16-6c-64g-16vram"
     @State private var selectedRegion: String = "ewr"
     @State private var plans: [CloudPlanInfo] = []
 
@@ -700,23 +700,36 @@ struct CloudGPUSettingsView: View {
                     .font(.mfBody)
                     .foregroundColor(.mfTextSecondary)
 
-                HStack(spacing: 20) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Monthly Cap ($)")
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Monthly Cap")
                             .font(.mfCaption)
                             .foregroundColor(.mfTextMuted)
-                        TextField("100", text: $monthlySpendCap)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 120)
+                        Spacer()
+                        Text("$\(Int(monthlySpendCap))")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.mfPrimary)
                     }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Per-Instance Cap ($)")
+                    .frame(maxWidth: 400)
+                    Slider(value: $monthlySpendCap, in: 5...500, step: 5)
+                        .frame(maxWidth: 400)
+                        .tint(.mfPrimary)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Per-Instance Cap")
                             .font(.mfCaption)
                             .foregroundColor(.mfTextMuted)
-                        TextField("50", text: $instanceSpendCap)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 120)
+                        Spacer()
+                        Text("$\(Int(instanceSpendCap))")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.mfPrimary)
                     }
+                    .frame(maxWidth: 400)
+                    Slider(value: $instanceSpendCap, in: 5...200, step: 5)
+                        .frame(maxWidth: 400)
+                        .tint(.mfPrimary)
                 }
             }
             .padding(20)
@@ -798,8 +811,8 @@ struct CloudGPUSettingsView: View {
             let (s, p) = try await (settingsReq, plansReq)
             settings = s
             plans = p
-            monthlySpendCap = String(format: "%.0f", s.monthlySpendCap)
-            instanceSpendCap = String(format: "%.0f", s.instanceSpendCap)
+            monthlySpendCap = s.monthlySpendCap
+            instanceSpendCap = s.instanceSpendCap
             defaultIdleMinutes = Double(s.defaultIdleMinutes)
             selectedPlan = s.defaultPlan
             selectedRegion = s.defaultRegion
@@ -817,8 +830,8 @@ struct CloudGPUSettingsView: View {
             let request = CloudSettingsUpdate(
                 defaultPlan: selectedPlan,
                 defaultRegion: selectedRegion,
-                monthlySpendCap: Double(monthlySpendCap),
-                instanceSpendCap: Double(instanceSpendCap),
+                monthlySpendCap: monthlySpendCap,
+                instanceSpendCap: instanceSpendCap,
                 defaultIdleMinutes: Int(defaultIdleMinutes)
             )
             let updated = try await service.updateCloudSettings(request: request)

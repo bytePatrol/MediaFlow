@@ -4,7 +4,7 @@ from datetime import datetime
 
 
 class CloudDeployRequest(BaseModel):
-    plan: str = "vcg-a16-8c-64g-16vram"
+    plan: str = "vcg-a16-6c-64g-16vram"
     region: str = "ewr"
     idle_minutes: int = 30
     auto_teardown: bool = True

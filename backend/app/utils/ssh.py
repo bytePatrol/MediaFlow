@@ -36,13 +36,16 @@ class SSHClient:
             kwargs = self._connect_kwargs()
 
             async with asyncssh.connect(**kwargs) as conn:
-                result = await conn.run("echo ok", check=True)
+                result = await asyncio.wait_for(
+                    conn.run("echo ok", check=True),
+                    timeout=15,
+                )
                 return result.stdout.strip() == "ok"
         except ImportError:
             logger.warning("asyncssh not installed, SSH features unavailable")
             return False
         except Exception as e:
-            logger.error(f"SSH connection failed: {e}")
+            logger.debug(f"SSH test to {self.hostname}: {e}")
             return False
 
     async def run_command(self, command: str) -> Dict[str, Any]:
@@ -182,12 +185,41 @@ class SSHClient:
 
             async with asyncssh.connect(**kwargs) as conn:
                 async with conn.start_sftp_client() as sftp:
-                    await sftp.put(local_path, remote_path,
-                                   progress_handler=progress_callback)
+                    try:
+                        await sftp.put(local_path, remote_path,
+                                       progress_handler=progress_callback)
+                    except OSError as e:
+                        if e.errno == 45:  # "Operation not supported" — SMB/NFS mounts
+                            logger.info(f"sftp.put failed on network mount, using chunked upload")
+                            await self._chunked_upload(sftp, local_path, remote_path, progress_callback)
+                        else:
+                            raise
             return True
         except Exception as e:
             logger.error(f"Upload failed: {e}")
             return False
+
+    async def _chunked_upload(self, sftp, local_path: str, remote_path: str,
+                              progress_callback=None) -> None:
+        """Upload a file by reading chunks manually — works on SMB/NFS mounts."""
+        import os
+        file_size = os.path.getsize(local_path)
+        chunk_size = 1024 * 1024  # 1 MB
+        transferred = 0
+
+        async with sftp.open(remote_path, "wb") as remote_file:
+            with open(local_path, "rb") as local_file:
+                while True:
+                    chunk = local_file.read(chunk_size)
+                    if not chunk:
+                        break
+                    await remote_file.write(chunk)
+                    transferred += len(chunk)
+                    if progress_callback:
+                        try:
+                            progress_callback(local_path, remote_path, transferred, file_size)
+                        except Exception:
+                            pass
 
     async def download_file(self, remote_path: str, local_path: str,
                             progress_callback=None) -> bool:

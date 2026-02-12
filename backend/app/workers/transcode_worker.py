@@ -196,8 +196,10 @@ class TranscodeWorker:
         ssh = SSHClient(worker.hostname, worker.port,
                         worker.ssh_username, worker.ssh_key_path)
 
-        # Find source file locally using path mappings from the local (controller) worker
+        # Find source file locally using path mappings
         local_source = job.source_path
+
+        # Try path mappings from the local (controller) worker first
         ctrl_result = await session.execute(
             select(WorkerServer).where(WorkerServer.is_local == True)  # noqa: E712
         )
@@ -206,6 +208,23 @@ class TranscodeWorker:
             resolved = resolve_path(job.source_path, controller.path_mappings)
             if resolved:
                 local_source = resolved
+
+        # Also try app-level path mappings from settings
+        if not os.path.exists(local_source):
+            from app.models.app_settings import AppSetting
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == "path_mappings")
+            )
+            setting = result.scalar_one_or_none()
+            if setting and setting.value:
+                import json as _json
+                try:
+                    mappings = _json.loads(setting.value)
+                    resolved = resolve_path(job.source_path, mappings)
+                    if resolved:
+                        local_source = resolved
+                except Exception:
+                    pass
 
         if not os.path.exists(local_source):
             job.status = "failed"
@@ -257,6 +276,9 @@ class TranscodeWorker:
         config = job.config_json or {}
         builder = FFmpegCommandBuilder(config, remote_source)
         remote_ffmpeg_cmd = builder.build()
+        # Replace local ffmpeg path with bare 'ffmpeg' for remote execution
+        if remote_ffmpeg_cmd.startswith("/"):
+            remote_ffmpeg_cmd = "ffmpeg" + remote_ffmpeg_cmd[remote_ffmpeg_cmd.index(" "):]
 
         # Run ffmpeg on remote via SSH (with streaming progress for cloud workers)
         job.status = "transcoding"

@@ -92,14 +92,7 @@ async def list_gpu_plans():
         api_key = await _get_setting(session, "vultr_api_key")
 
     if not api_key:
-        # Return static plan info without region availability
-        from app.services.vultr_client import GPU_PLAN_INFO
-        return [
-            CloudPlanInfo(
-                plan_id=pid, regions=[], **{k: v for k, v in info.items()}
-            )
-            for pid, info in GPU_PLAN_INFO.items()
-        ]
+        raise HTTPException(400, "Vultr API key not configured. Set it in Settings > Cloud GPU.")
 
     from app.services.vultr_client import VultrClient
     vultr = VultrClient(api_key)
@@ -156,7 +149,7 @@ async def get_cloud_settings():
         api_key = await _get_setting(session, "vultr_api_key")
         return CloudSettingsResponse(
             api_key_configured=bool(api_key),
-            default_plan=await _get_setting(session, "cloud_default_plan", "vcg-a16-8c-64g-16vram"),
+            default_plan=await _get_setting(session, "cloud_default_plan", "vcg-a16-6c-64g-16vram"),
             default_region=await _get_setting(session, "cloud_default_region", "ewr"),
             monthly_spend_cap=float(await _get_setting(session, "cloud_monthly_spend_cap", 100.0)),
             instance_spend_cap=float(await _get_setting(session, "cloud_instance_spend_cap", 50.0)),
