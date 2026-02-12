@@ -141,7 +141,10 @@ class TranscodeService:
             video_codec, nvenc_codec, worker.name,
         )
         config["video_codec"] = nvenc_codec
-        config["hw_accel"] = "nvenc"
+        # Don't set hw_accel — let ffmpeg decode on CPU and only use GPU for
+        # encoding.  CUDA hw decoding is an optimization that fails hard when
+        # the driver is broken, whereas the NVENC encoder alone still works.
+        # Users who want full CUDA decode can set hw_accel="nvenc" in a preset.
 
         # Strip incompatible encoder_tune values
         tune = config.get("encoder_tune")

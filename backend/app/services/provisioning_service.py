@@ -178,33 +178,80 @@ async def run_provisioning(server_id: int, install_gpu_drivers: bool = False):
                 "encoders": supported_encoders,
             })
 
-            # Step 7: GPU detection + optional driver install
+            # Step 7: GPU detection + NVENC compatibility check
             await _broadcast_progress(server_id, 70, "gpu_detection", "Checking for GPU hardware...")
             gpu_result = await ssh.run_command("lspci 2>/dev/null | grep -i nvidia || echo 'NO_NVIDIA'")
             has_nvidia = "NO_NVIDIA" not in (gpu_result.get("stdout") or "")
 
-            if has_nvidia and install_gpu_drivers:
-                await _broadcast_progress(server_id, 75, "gpu_drivers", "Installing NVIDIA drivers (this may take a while)...")
-                try:
-                    if distro_family == "debian":
-                        gpu_cmd = (
-                            f"{sudo_prefix}apt-get install -y -qq nvidia-driver-535 nvidia-utils-535 2>/dev/null || "
-                            f"{sudo_prefix}apt-get install -y -qq nvidia-driver nvidia-utils 2>/dev/null || "
-                            f"echo GPU_DRIVER_SKIPPED"
+            if has_nvidia:
+                # Don't install GPU drivers — cloud vGPU instances ship with the
+                # correct driver pre-installed and changing it breaks the vGPU.
+                # Instead, test if the installed ffmpeg's NVENC works with the driver.
+                await _broadcast_progress(server_id, 75, "nvenc_test", "Testing NVENC GPU encoding...")
+                nvenc_test = await ssh.run_command(
+                    "ffmpeg -y -f lavfi -i nullsrc=s=320x240:d=0.1 "
+                    "-c:v hevc_nvenc -frames:v 1 -f null /dev/null 2>&1"
+                )
+                nvenc_works = nvenc_test.get("exit_status") == 0
+
+                if nvenc_works:
+                    log_entries.append({"step": "nvenc_test", "status": "ok"})
+                    logger.info(f"Provision [{server_id}]: NVENC works with static ffmpeg")
+                else:
+                    # Static ffmpeg's NVENC SDK is too new for this driver.
+                    # Install Jellyfin ffmpeg which is compiled against SDK 12.x
+                    # (compatible with driver 535+).
+                    nvenc_err = (nvenc_test.get("stdout") or "")[-200:]
+                    logger.warning(
+                        f"Provision [{server_id}]: NVENC failed with static ffmpeg, "
+                        f"installing Jellyfin ffmpeg for SDK compatibility: {nvenc_err}"
+                    )
+                    await _broadcast_progress(
+                        server_id, 78, "jellyfin_ffmpeg",
+                        "NVENC incompatible — installing GPU-compatible ffmpeg...",
+                    )
+                    try:
+                        # Use distro codename to select the correct package
+                        codename_result = await ssh.run_command(
+                            "lsb_release -cs 2>/dev/null || "
+                            "grep VERSION_CODENAME /etc/os-release 2>/dev/null | cut -d= -f2"
                         )
-                    elif distro_family == "rhel":
-                        gpu_cmd = (
-                            f"{sudo_prefix}{pkg_mgr} install -y nvidia-driver nvidia-driver-libs 2>/dev/null || "
-                            f"echo GPU_DRIVER_SKIPPED"
+                        codename = (codename_result.get("stdout") or "").strip() or "noble"
+                        jf_install = (
+                            f"cd /tmp && "
+                            f"wget -q -O jellyfin-ffmpeg.deb "
+                            f"'https://repo.jellyfin.org/files/ffmpeg/ubuntu/latest-7.x/amd64/"
+                            f"jellyfin-ffmpeg7_7.1.3-1-{codename}_amd64.deb' && "
+                            f"{sudo_prefix}dpkg -i --force-depends jellyfin-ffmpeg.deb 2>/dev/null; "
+                            f"{sudo_prefix}apt-get install -f -y -qq 2>/dev/null; "
+                            f"rm -f /tmp/jellyfin-ffmpeg.deb && "
+                            f"echo JF_OK"
                         )
-                    else:
-                        gpu_cmd = "echo GPU_DRIVER_SKIPPED"
-                    await ssh.run_command(gpu_cmd)
-                    log_entries.append({"step": "gpu_drivers", "status": "attempted"})
-                except Exception as gpu_err:
-                    log_entries.append({"step": "gpu_drivers", "status": "failed", "error": str(gpu_err)[:200]})
+                        jf_result = await ssh.run_command(jf_install, timeout=120)
+
+                        if "JF_OK" in (jf_result.get("stdout") or ""):
+                            # Replace static ffmpeg with Jellyfin's NVENC-compatible build
+                            await ssh.run_command(
+                                f"{sudo_prefix}ln -sf /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg && "
+                                f"{sudo_prefix}ln -sf /usr/lib/jellyfin-ffmpeg/ffprobe /usr/local/bin/ffprobe"
+                            )
+                            # Verify NVENC works now
+                            retest = await ssh.run_command(
+                                "ffmpeg -y -f lavfi -i nullsrc=s=320x240:d=0.1 "
+                                "-c:v hevc_nvenc -frames:v 1 -f null /dev/null 2>&1"
+                            )
+                            if retest.get("exit_status") == 0:
+                                log_entries.append({"step": "nvenc_test", "status": "ok_jellyfin"})
+                                logger.info(f"Provision [{server_id}]: NVENC works with Jellyfin ffmpeg")
+                            else:
+                                log_entries.append({"step": "nvenc_test", "status": "failed_jellyfin", "error": nvenc_err})
+                                logger.warning(f"Provision [{server_id}]: NVENC still failed after Jellyfin ffmpeg")
+                        else:
+                            log_entries.append({"step": "nvenc_test", "status": "jellyfin_install_failed"})
+                    except Exception as jf_err:
+                        log_entries.append({"step": "nvenc_test", "status": "jellyfin_error", "error": str(jf_err)[:200]})
             else:
-                log_entries.append({"step": "gpu_detection", "nvidia_found": has_nvidia, "drivers_requested": install_gpu_drivers})
+                log_entries.append({"step": "gpu_detection", "nvidia_found": False})
 
             # Step 8: Create working directory
             await _broadcast_progress(server_id, 85, "create_workdir", "Creating working directory...")

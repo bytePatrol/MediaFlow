@@ -27,6 +27,27 @@ PROGRESS_PATTERN = re.compile(
 )
 
 
+NVENC_CPU_FALLBACK = {
+    "hevc_nvenc": "libx265",
+    "h264_nvenc": "libx264",
+    "av1_nvenc": "libsvtav1",
+}
+
+NVENC_ERROR_PATTERNS = [
+    "no CUDA-capable device",
+    "CUDA_ERROR",
+    "nvenc API version",
+    "minimum required Nvidia driver",
+    "Cannot load libcuda",
+    "device type cuda needed",
+]
+
+
+def _is_nvenc_failure(log_text: str) -> bool:
+    """Check if ffmpeg log indicates an NVENC/CUDA-specific failure."""
+    return any(p in log_text for p in NVENC_ERROR_PATTERNS)
+
+
 class TranscodeWorker:
     def __init__(self):
         self.running = True
@@ -226,16 +247,56 @@ class TranscodeWorker:
                 except Exception:
                     pass
 
+        # If file not found locally, try pulling from Plex server via SSH
+        pulled_from_nas = False
         if not os.path.exists(local_source):
-            job.status = "failed"
-            job.ffmpeg_log = f"Source file not accessible locally for upload: {local_source}"
-            await session.commit()
-            await manager.broadcast("job.failed", {
-                "job_id": job.id, "error": f"Source not found: {local_source}"
-            })
-            return
+            logger.info(f"Job {job.id}: source not found locally, attempting SSH pull from Plex server")
+            media = await self._get_media(job, session)
+            plex_server = await self._resolve_plex_server(job, media, session)
 
-        media = await self._get_media(job, session)
+            if plex_server and plex_server.ssh_hostname:
+                nas_ssh = SSHClient(plex_server.ssh_hostname, plex_server.ssh_port or 22,
+                                    plex_server.ssh_username, plex_server.ssh_key_path,
+                                    plex_server.ssh_password)
+
+                staging_dir = "/tmp/mediaflow"
+                os.makedirs(staging_dir, exist_ok=True)
+                local_source = os.path.join(staging_dir, os.path.basename(job.source_path))
+                pulled_from_nas = True
+
+                job.status = "transferring"
+                await session.commit()
+                await manager.broadcast("job.status_changed", {"job_id": job.id, "status": "transferring"})
+                await manager.broadcast("job.log", {
+                    "job_id": job.id,
+                    "message": f"Downloading from NAS {plex_server.ssh_hostname}...",
+                })
+
+                dl_progress = self._make_transfer_progress_cb(job.id, "download", job.source_size or 0)
+                downloaded = await nas_ssh.download_file(job.source_path, local_source, progress_callback=dl_progress)
+                if not downloaded:
+                    job.status = "failed"
+                    job.ffmpeg_log = f"Failed to download source from {plex_server.ssh_hostname}"
+                    await session.commit()
+                    await manager.broadcast("job.failed", {
+                        "job_id": job.id, "error": f"SSH download failed from {plex_server.ssh_hostname}"
+                    })
+                    return
+                logger.info(f"Job {job.id}: downloaded source from NAS to {local_source}")
+            else:
+                job.status = "failed"
+                job.ffmpeg_log = (
+                    f"Source file not accessible locally for upload: {local_source}\n"
+                    "Configure SSH on the Plex server or set up path mappings."
+                )
+                await session.commit()
+                await manager.broadcast("job.failed", {
+                    "job_id": job.id, "error": f"Source not found: {local_source}"
+                })
+                return
+
+        if not pulled_from_nas:
+            media = await self._get_media(job, session)
         start_time = time.time()
 
         # Ensure remote working directory exists
@@ -247,13 +308,27 @@ class TranscodeWorker:
         logger.info(f"Job {job.id}: uploading {local_source} to {worker.hostname}:{remote_source}")
 
         # Set status to transferring and add progress callback
-        job.status = "transferring"
-        await session.commit()
-        await manager.broadcast("job.status_changed", {"job_id": job.id, "status": "transferring"})
+        if not pulled_from_nas:
+            job.status = "transferring"
+            await session.commit()
+            await manager.broadcast("job.status_changed", {"job_id": job.id, "status": "transferring"})
+        await manager.broadcast("job.log", {
+            "job_id": job.id,
+            "message": f"Uploading to worker {worker.hostname}...",
+        })
 
         upload_size = os.path.getsize(local_source) if os.path.exists(local_source) else 0
         ul_progress = self._make_transfer_progress_cb(job.id, "upload", upload_size)
         uploaded = await ssh.upload_file(local_source, remote_source, progress_callback=ul_progress)
+
+        # Clean up staged file if we pulled it from NAS
+        if pulled_from_nas and os.path.exists(local_source):
+            try:
+                os.remove(local_source)
+                logger.info(f"Job {job.id}: cleaned up staged file {local_source}")
+            except OSError:
+                pass
+
         if not uploaded:
             job.status = "failed"
             job.ffmpeg_log = f"Failed to upload source to {worker.hostname}"
@@ -316,15 +391,64 @@ class TranscodeWorker:
 
         if result["exit_status"] != 0:
             log_text = result.get("stderr", "") or result.get("stdout", "")
-            job.status = "failed"
-            job.ffmpeg_log = log_text[-5000:] if len(log_text) > 5000 else log_text
-            await session.commit()
-            # Cleanup remote files
-            await ssh.run_command(f"rm -f {shlex.quote(remote_source)} {shlex.quote(remote_output)}")
-            await manager.broadcast("job.failed", {
-                "job_id": job.id, "error": "Remote ffmpeg failed"
-            })
-            return
+
+            # NVENC/CUDA failure — fall back to CPU encoding and retry
+            video_codec = config.get("video_codec", "")
+            cpu_codec = NVENC_CPU_FALLBACK.get(video_codec)
+            if cpu_codec and _is_nvenc_failure(log_text):
+                logger.warning(
+                    "Job %d: NVENC failed on worker, falling back to CPU codec %s",
+                    job.id, cpu_codec,
+                )
+                await manager.broadcast("job.log", {
+                    "job_id": job.id,
+                    "message": f"GPU encoding unavailable — retrying with CPU encoder ({cpu_codec})...",
+                })
+                config = {**config, "video_codec": cpu_codec, "hw_accel": None}
+                config.pop("encoder_tune", None)  # will be re-added by builder if set
+                job.config_json = config
+
+                fallback_builder = FFmpegCommandBuilder(config, remote_source)
+                fallback_cmd = fallback_builder.build()
+                if fallback_cmd.startswith("/"):
+                    fallback_cmd = "ffmpeg" + fallback_cmd[fallback_cmd.index(" "):]
+
+                # Reset progress
+                job.progress_percent = 0.0
+                job.current_fps = None
+                job.eta_seconds = None
+                await session.commit()
+
+                if worker.cloud_provider:
+                    result = await ssh.run_command_streaming(fallback_cmd, line_callback=_ffmpeg_line_cb)
+                else:
+                    result = await ssh.run_command(fallback_cmd)
+
+                if result["exit_status"] != 0:
+                    log_text = result.get("stderr", "") or result.get("stdout", "")
+                    job.status = "failed"
+                    job.ffmpeg_log = log_text[-5000:] if len(log_text) > 5000 else log_text
+                    await session.commit()
+                    await ssh.run_command(f"rm -f {shlex.quote(remote_source)} {shlex.quote(remote_output)}")
+                    await manager.broadcast("job.failed", {
+                        "job_id": job.id, "error": "Remote ffmpeg failed (CPU fallback)"
+                    })
+                    return
+
+                # Update the stored ffmpeg command to reflect what actually ran
+                job.ffmpeg_command = fallback_cmd
+                remote_output = os.path.splitext(remote_source)[0] + ".mediaflow." + (
+                    config.get("container", "mkv")
+                )
+            else:
+                job.status = "failed"
+                job.ffmpeg_log = log_text[-5000:] if len(log_text) > 5000 else log_text
+                await session.commit()
+                await ssh.run_command(f"rm -f {shlex.quote(remote_source)} {shlex.quote(remote_output)}")
+                await manager.broadcast("job.failed", {
+                    "job_id": job.id, "error": "Remote ffmpeg failed"
+                })
+                return
 
         # Download output back
         local_output = job.output_path
@@ -683,6 +807,21 @@ class TranscodeWorker:
         return callback
 
     # --- Shared helpers ---
+
+    async def _resolve_plex_server(self, job: TranscodeJob, media, session):
+        """Resolve the Plex server with SSH credentials for a job's media item."""
+        if not media or not media.plex_library_id:
+            return None
+        lib_result = await session.execute(
+            select(PlexLibrary).where(PlexLibrary.id == media.plex_library_id)
+        )
+        lib = lib_result.scalar_one_or_none()
+        if not lib:
+            return None
+        srv_result = await session.execute(
+            select(PlexServer).where(PlexServer.id == lib.plex_server_id)
+        )
+        return srv_result.scalar_one_or_none()
 
     async def _get_media(self, job: TranscodeJob, session) -> Optional[MediaItem]:
         if not job.media_item_id:
