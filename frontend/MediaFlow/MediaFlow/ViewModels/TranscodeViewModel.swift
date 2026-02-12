@@ -28,6 +28,8 @@ class TranscodeViewModel: ObservableObject {
     @Published var totalJobs: Int = 0
     @Published var jobLogMessages: [Int: [String]] = [:]
     @Published var jobTransferProgress: [Int: TransferProgress] = [:]
+    @Published var cloudApiKeyConfigured: Bool = false
+    @Published var isDeployingCloud: Bool = false
 
     private let service: BackendService
     private var wsService: WebSocketService?
@@ -160,6 +162,33 @@ class TranscodeViewModel: ObservableObject {
         await loadQueueStats()
     }
 
+    func loadCloudSettings() async {
+        do {
+            let settings = try await service.getCloudSettings()
+            cloudApiKeyConfigured = settings.apiKeyConfigured
+        } catch {
+            // Cloud settings not available — leave as false
+        }
+    }
+
+    func deployCloudGPU() async {
+        isDeployingCloud = true
+        do {
+            let settings = try await service.getCloudSettings()
+            let request = CloudDeployRequest(
+                plan: settings.defaultPlan,
+                region: settings.defaultRegion,
+                idleMinutes: settings.defaultIdleMinutes,
+                autoTeardown: true
+            )
+            _ = try await service.deployCloudGPU(request: request)
+            // Stay in deploying state — WebSocket events will clear it
+        } catch {
+            print("Failed to deploy cloud GPU: \(error)")
+            isDeployingCloud = false
+        }
+    }
+
     private func setupWebSocket(_ ws: WebSocketService) {
         self.wsService = ws
 
@@ -232,6 +261,27 @@ class TranscodeViewModel: ObservableObject {
         }
 
         ws.subscribe(to: "job.completed") { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.loadJobs()
+                await self?.loadQueueStats()
+            }
+        }
+
+        // Cloud deploy events — clear deploying state and refresh
+        ws.subscribe(to: "cloud.deploy_completed") { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.isDeployingCloud = false
+                await self?.loadQueueStats()
+            }
+        }
+
+        ws.subscribe(to: "cloud.deploy_failed") { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.isDeployingCloud = false
+            }
+        }
+
+        ws.subscribe(to: "cloud.jobs_reassigned") { [weak self] _ in
             Task { @MainActor [weak self] in
                 await self?.loadJobs()
                 await self?.loadQueueStats()

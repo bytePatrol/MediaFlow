@@ -1,6 +1,6 @@
 # MediaFlow — Project Progress
 
-**Last Updated**: 2026-02-11
+**Last Updated**: 2026-02-12
 **GitHub**: https://github.com/bytePatrol/MediaFlow
 **License**: MIT
 
@@ -351,6 +351,61 @@ Backend (Python FastAPI, port 9876)
 #### Remaining Issue Found at End of Session
 - **Every cloud deploy so far has been running on CPU despite GPU being available.** Root cause: `SSHClient.run_command()` didn't accept a `timeout` kwarg, so the Jellyfin ffmpeg install in `provisioning_service.py` threw an exception and silently fell back. The static BtbN ffmpeg lists `hevc_nvenc` as an encoder but can't actually use it (SDK 13.0 vs driver 550's SDK 12.x). The fix (`88f4cad`) adds `timeout` support to `run_command()`. **Next deploy should verify Jellyfin ffmpeg installs and NVENC works at 500+ FPS.**
 
+### Cloud Auto-Deploy on Queue — Implemented 2026-02-12
+
+**Feature**: When transcode jobs are queued and no worker servers are online, automatically deploy a cloud GPU instance using saved defaults, then reassign the waiting jobs to it.
+
+#### What Was Built
+1. **Auto-deploy setting** (`cloud_auto_deploy_enabled` AppSetting, default: false)
+   - New field on `CloudSettingsResponse` / `CloudSettingsUpdate` schemas
+   - Read/write via `GET/PUT /api/cloud/settings`
+   - Frontend toggle in Settings → Cloud GPU → AUTO-DEPLOY section
+
+2. **Auto-deploy trigger** (`transcode_service.py → _maybe_auto_deploy_cloud()`):
+   - After `create_jobs()` commits, checks if any jobs got `worker_server_id=None`
+   - Guards: setting enabled, API key configured, no instance already provisioning, monthly spend cap not exceeded
+   - Fires `deploy_cloud_gpu()` as background task
+   - Broadcasts `cloud.auto_deploy_triggered` WebSocket event
+
+3. **Job reassignment** (`cloud_provisioning_service.py → _reassign_unassigned_jobs()`):
+   - Called at end of `deploy_cloud_gpu()` after worker goes online
+   - Finds all `queued` jobs with `worker_server_id IS NULL`
+   - Determines transfer mode, upgrades to NVENC, rebuilds ffmpeg command
+   - Broadcasts `cloud.jobs_reassigned` WebSocket event
+
+4. **Worker skip for non-local files** (`transcode_worker.py`):
+   - `_process_queue()` now fetches up to 10 candidates
+   - Skips unassigned jobs whose source isn't locally accessible (NAS paths)
+   - Prevents immediate failure; jobs stay `queued` for cloud worker reassignment
+
+5. **Deploy Cloud GPU button on queue banner** (`ProcessingQueueView.swift`):
+   - When no workers online and Vultr API key configured, warning banner shows "Deploy Cloud GPU" button
+   - After clicking, banner switches to blue "Cloud GPU is building — queued jobs will start automatically when ready." with spinner
+   - WebSocket events clear deploying state on success/failure
+
+#### Files Modified
+- `backend/app/schemas/cloud.py` — `auto_deploy_enabled` field
+- `backend/app/api/cloud.py` — read/write setting
+- `backend/app/services/transcode_service.py` — `_maybe_auto_deploy_cloud()` + trigger after `create_jobs()`
+- `backend/app/services/cloud_provisioning_service.py` — `_reassign_unassigned_jobs()` at end of deploy
+- `backend/app/workers/transcode_worker.py` — skip non-local unassigned jobs
+- `frontend/.../Models/WorkerServer.swift` — `autoDeployEnabled` on settings models
+- `frontend/.../Views/Settings/SettingsView.swift` — AUTO-DEPLOY toggle card
+- `frontend/.../Views/Transcode/ProcessingQueueView.swift` — Deploy Cloud GPU button + building banner
+- `frontend/.../ViewModels/TranscodeViewModel.swift` — `cloudApiKeyConfigured`, `isDeployingCloud`, cloud WebSocket subs
+- `frontend/.../ViewModels/ServerManagementViewModel.swift` — `cloud.auto_deploy_triggered` + `cloud.jobs_reassigned` subscriptions
+- `frontend/.../Views/Servers/ServerManagementView.swift` — auto-deploy toast
+
+#### New WebSocket Events
+- `cloud.auto_deploy_triggered` — {job_count, plan, region}
+- `cloud.jobs_reassigned` — {server_id, job_count}
+
+#### New AppSettings Key
+- `cloud_auto_deploy_enabled` — "true"/"false" (default "false")
+
+#### Commits
+- `fe495c9` — Add cloud auto-deploy when no workers available for queued jobs
+
 ### Current Path Mappings (stored in app_settings)
 - `/share/ZFS18_DATA/Media` → `/Volumes/media` (TrueNAS SMB mount)
 
@@ -426,7 +481,7 @@ asyncssh>=2.14.0
 ### High Priority
 1. **Path mappings UI** — Currently set via direct DB insert. Need a Settings panel for configuring NAS path mappings (`source_prefix` → `target_prefix`).
 2. **Bulk transcode from library** — Allow selecting multiple items in the library browser and queueing them for transcode in one action (the recommendation batch-queue path works, but direct library selection → transcode is not yet wired).
-3. **Cloud worker auto-deploy on queue** — When jobs are queued and no workers are online, optionally auto-deploy a cloud GPU worker.
+3. ~~**Cloud worker auto-deploy on queue**~~ — **DONE** (2026-02-12). See below.
 
 ### Medium Priority
 4. **Custom tagging system frontend** — Backend model (CustomTag, MediaTag) exists. Need UI for creating tags, applying to media items, filtering by tags.

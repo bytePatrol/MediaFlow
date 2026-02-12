@@ -88,9 +88,23 @@ class TranscodeWorker:
                 select(TranscodeJob)
                 .where(TranscodeJob.status == "queued")
                 .order_by(TranscodeJob.priority.desc(), TranscodeJob.created_at.asc())
-                .limit(1)
+                .limit(10)
             )
-            job = result.scalar_one_or_none()
+            candidates = result.scalars().all()
+            if not candidates:
+                return
+
+            job = None
+            for candidate in candidates:
+                # Skip unassigned jobs whose source isn't locally accessible —
+                # they're waiting for a cloud/remote worker to be assigned
+                if candidate.worker_server_id is None:
+                    check_path = candidate.worker_input_path or candidate.source_path
+                    if check_path and not os.path.exists(check_path):
+                        continue
+                job = candidate
+                break
+
             if not job:
                 return
 
