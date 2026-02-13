@@ -36,6 +36,7 @@ class AppState: ObservableObject {
     @Published var showError: Bool = false
     @Published var showAddServer: Bool = false
     @Published var toasts: [ToastItem] = []
+    @Published var hasCompletedOnboarding: Bool = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
 
     private var healthCheckTimer: Timer?
 
@@ -78,6 +79,11 @@ class AppState: ObservableObject {
 
     func dismissToast(_ id: UUID) {
         toasts.removeAll { $0.id == id }
+    }
+
+    func completeOnboarding() {
+        hasCompletedOnboarding = true
+        UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
     }
 }
 

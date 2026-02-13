@@ -9,6 +9,7 @@ class WebhookConfigPanel {
     @MainActor
     func show(
         existingConfig: NotificationConfigInfo? = nil,
+        channelType: String = "webhook",
         onSave: @escaping () -> Void
     ) {
         guard panel == nil else { return }
@@ -16,6 +17,7 @@ class WebhookConfigPanel {
         let content = WebhookConfigPanelContent(
             dismiss: { [weak self] in self?.close() },
             existingConfig: existingConfig,
+            channelType: channelType,
             onSave: onSave
         )
 
@@ -55,6 +57,7 @@ class WebhookConfigPanel {
 struct WebhookConfigPanelContent: View {
     var dismiss: () -> Void
     var existingConfig: NotificationConfigInfo?
+    var channelType: String = "webhook"
     var onSave: () -> Void
 
     @State private var name: String = ""
@@ -70,18 +73,54 @@ struct WebhookConfigPanelContent: View {
 
     var isEditing: Bool { existingConfig != nil }
 
+    private var channelTypeLabel: String {
+        switch channelType {
+        case "discord": return "Discord"
+        case "slack": return "Slack"
+        case "telegram": return "Telegram"
+        default: return "Webhook"
+        }
+    }
+
+    private var channelTypeIcon: String {
+        switch channelType {
+        case "discord": return "bubble.left.fill"
+        case "slack": return "number.square.fill"
+        case "telegram": return "paperplane.fill"
+        default: return "link"
+        }
+    }
+
+    private var channelTypeDescription: String {
+        switch channelType {
+        case "discord": return "Send notifications to a Discord channel via webhook."
+        case "slack": return "Send notifications to a Slack channel via webhook."
+        case "telegram": return "Send notifications to a Telegram chat via bot."
+        default: return "POST JSON payloads to a URL on events."
+        }
+    }
+
+    private var channelTypePlaceholder: String {
+        switch channelType {
+        case "discord": return "https://discord.com/api/webhooks/..."
+        case "slack": return "https://hooks.slack.com/services/..."
+        case "telegram": return "https://api.telegram.org/bot.../sendMessage"
+        default: return "https://hooks.example.com/..."
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) {
-                        Image(systemName: "link")
+                        Image(systemName: channelTypeIcon)
                             .foregroundColor(.mfPrimary)
-                        Text(isEditing ? "Edit Webhook" : "Add Webhook")
+                        Text(isEditing ? "Edit \(channelTypeLabel)" : "Add \(channelTypeLabel)")
                             .font(.mfHeadline)
                     }
-                    Text("POST JSON payloads to a URL on events.")
+                    Text(channelTypeDescription)
                         .font(.mfCaption)
                         .foregroundColor(.mfTextSecondary)
                 }
@@ -103,8 +142,8 @@ struct WebhookConfigPanelContent: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("WEBHOOK URL").font(.system(size: 10, weight: .bold)).foregroundColor(.mfTextMuted).tracking(0.5)
-                    TextField("https://hooks.example.com/...", text: $webhookUrl)
+                    Text("\(channelTypeLabel.uppercased()) URL").font(.system(size: 10, weight: .bold)).foregroundColor(.mfTextMuted).tracking(0.5)
+                    TextField(channelTypePlaceholder, text: $webhookUrl)
                         .textFieldStyle(.roundedBorder)
                 }
 
@@ -226,7 +265,7 @@ struct WebhookConfigPanelContent: View {
             } else {
                 _ = try await service.createNotificationConfig(
                     request: NotificationConfigCreateRequest(
-                        type: "webhook",
+                        type: channelType,
                         name: name,
                         config: configDict,
                         events: selectedEvents,
@@ -250,7 +289,7 @@ struct WebhookConfigPanelContent: View {
                 let configDict: [String: AnyCodable] = ["url": AnyCodable(webhookUrl)]
                 let created = try await service.createNotificationConfig(
                     request: NotificationConfigCreateRequest(
-                        type: "webhook",
+                        type: channelType,
                         name: name,
                         config: configDict,
                         events: selectedEvents,

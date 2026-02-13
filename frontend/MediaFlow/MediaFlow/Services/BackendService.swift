@@ -253,6 +253,36 @@ class BackendService {
         return try await client.get("/api/analytics/codec-distribution")
     }
 
+    func getResolutionDistribution() async throws -> ResolutionDistribution {
+        return try await client.get("/api/analytics/resolution-distribution")
+    }
+
+    func getSavingsHistory(days: Int = 30) async throws -> [SavingsHistoryPoint] {
+        let items = [URLQueryItem(name: "days", value: "\(days)")]
+        return try await client.get("/api/analytics/savings-history", queryItems: items)
+    }
+
+    func getTrends(days: Int = 30) async throws -> TrendsResponse {
+        let items = [URLQueryItem(name: "days", value: "\(days)")]
+        return try await client.get("/api/analytics/trends", queryItems: items)
+    }
+
+    func getPredictions() async throws -> PredictionResponse {
+        return try await client.get("/api/analytics/predictions")
+    }
+
+    func getServerPerformance() async throws -> [ServerPerformanceInfo] {
+        return try await client.get("/api/analytics/server-performance")
+    }
+
+    func getHealthScore() async throws -> HealthScoreResponse {
+        return try await client.get("/api/analytics/health-score")
+    }
+
+    func getTopOpportunities() async throws -> [SavingsOpportunity] {
+        return try await client.get("/api/analytics/top-opportunities")
+    }
+
     // MARK: - Recommendations
     func getRecommendations(type: String? = nil) async throws -> [Recommendation] {
         var items: [URLQueryItem] = []
@@ -289,6 +319,24 @@ class BackendService {
 
     func setIntelSetting(key: String, value: String) async throws -> AppSettingValue {
         return try await client.put("/api/settings/\(key)", body: ["value": value])
+    }
+
+    // MARK: - Filter Presets
+    func getFilterPresets() async throws -> [FilterPresetInfo] {
+        return try await client.get("/api/filter-presets/")
+    }
+
+    func createFilterPreset(name: String, filters: [String: AnyCodable]) async throws -> FilterPresetInfo {
+        return try await client.post("/api/filter-presets/", body: FilterPresetCreateRequest(name: name, filterJson: filters))
+    }
+
+    func deleteFilterPreset(id: Int) async throws {
+        try await client.delete("/api/filter-presets/\(id)")
+    }
+
+    // MARK: - Notification Events
+    func getNotificationEvents() async throws -> [NotificationEventInfo] {
+        return try await client.get("/api/notifications/events")
     }
 }
 

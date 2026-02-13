@@ -93,6 +93,13 @@ class CloudMonitorWorker:
                         "current_cost": round(running_cost, 2),
                         "cap": instance_cap,
                     })
+                    from app.utils.notify import fire_notification
+                    await fire_notification("cloud.spend_cap_reached", {
+                        "server_id": server.id,
+                        "cap_type": "instance",
+                        "current_cost": round(running_cost, 2),
+                        "cap": instance_cap,
+                    })
                     await self._auto_teardown(server.id)
                     continue
 
@@ -106,6 +113,13 @@ class CloudMonitorWorker:
                         f"Monthly cloud spend cap reached (${total_running_cost:.2f} >= ${monthly_cap:.2f})"
                     )
                     await manager.broadcast("cloud.spend_cap_reached", {
+                        "server_id": server.id,
+                        "cap_type": "monthly",
+                        "current_cost": round(total_running_cost, 2),
+                        "cap": monthly_cap,
+                    })
+                    from app.utils.notify import fire_notification
+                    await fire_notification("cloud.spend_cap_reached", {
                         "server_id": server.id,
                         "cap_type": "monthly",
                         "current_cost": round(total_running_cost, 2),

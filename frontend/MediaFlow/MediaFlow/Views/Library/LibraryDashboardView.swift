@@ -10,6 +10,9 @@ struct LibraryDashboardView: View {
     @State private var newTagName: String = ""
     @State private var newTagColor: String = "#256af4"
     @State private var collectionPanel = CollectionBuilderPanel()
+    @State private var filterPresets: [FilterPresetInfo] = []
+    @State private var showSavePreset = false
+    @State private var presetName: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,10 +55,23 @@ struct LibraryDashboardView: View {
         .sheet(isPresented: $showManageTags) {
             ManageTagsSheet(viewModel: viewModel)
         }
+        .alert("Save Filter Preset", isPresented: $showSavePreset) {
+            TextField("Preset name", text: $presetName)
+            Button("Save") {
+                Task {
+                    let filters: [String: AnyCodable] = [:]  // Simplified preset
+                    try? await BackendService().createFilterPreset(name: presetName, filters: filters)
+                    presetName = ""
+                    await loadPresets()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         .task {
             await viewModel.loadSections()
             await viewModel.loadTags()
             await viewModel.loadItems()
+            await loadPresets()
         }
     }
 
@@ -127,6 +143,52 @@ struct LibraryDashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(showFilterSidebar ? .mfPrimary : .mfTextMuted)
+
+                // Filter presets
+                if !filterPresets.isEmpty {
+                    Menu {
+                        ForEach(filterPresets) { preset in
+                            Button(preset.name) {
+                                // Load preset filter (simplified - applies name filter for now)
+                                Task { await viewModel.loadItems() }
+                            }
+                        }
+                        Divider()
+                        ForEach(filterPresets) { preset in
+                            Button(role: .destructive) {
+                                Task {
+                                    try? await BackendService().deleteFilterPreset(id: preset.id)
+                                    await loadPresets()
+                                }
+                            } label: {
+                                Label("Delete \(preset.name)", systemImage: "trash")
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "slider.horizontal.below.square.filled.and.square")
+                                .font(.system(size: 12))
+                            Text("Presets")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .secondaryButton()
+                    }
+                }
+
+                if viewModel.filterState.isActive {
+                    Button {
+                        showSavePreset = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "square.and.arrow.down")
+                                .font(.system(size: 12))
+                            Text("Save Filter")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .secondaryButton()
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 viewModeToggle
 
@@ -448,6 +510,12 @@ struct LibraryDashboardView: View {
             .background(Color.mfPrimary.opacity(0.06))
             .overlay(Rectangle().frame(height: 1).foregroundColor(.mfPrimary.opacity(0.15)), alignment: .bottom)
         }
+    }
+
+    private func loadPresets() async {
+        do {
+            filterPresets = try await BackendService().getFilterPresets()
+        } catch {}
     }
 
     private var showSelectAllBanner: Bool {

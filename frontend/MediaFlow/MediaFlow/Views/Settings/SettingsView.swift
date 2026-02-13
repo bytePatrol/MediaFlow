@@ -51,20 +51,24 @@ struct SettingsView: View {
 
             // Content
             ScrollView {
-                switch selectedTab {
-                case .general:
-                    GeneralSettingsView()
-                case .storage:
-                    StorageSettingsView()
-                case .intelligence:
-                    IntelligenceSettingsView()
-                case .cloudGpu:
-                    CloudGPUSettingsView()
-                case .notifications:
-                    NotificationSettingsView()
-                case .api:
-                    APISettingsView()
+                Group {
+                    switch selectedTab {
+                    case .general:
+                        GeneralSettingsView()
+                    case .storage:
+                        StorageSettingsView()
+                    case .intelligence:
+                        IntelligenceSettingsView()
+                    case .cloudGpu:
+                        CloudGPUSettingsView()
+                    case .notifications:
+                        NotificationSettingsView()
+                    case .api:
+                        APISettingsView()
+                    }
                 }
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.2), value: selectedTab)
             }
             .padding(24)
         }
@@ -1236,6 +1240,32 @@ struct NotificationSettingsView: View {
                     .secondaryButton()
                 }
                 .buttonStyle(.plain)
+
+                Button {
+                    webhookPanel.show(channelType: "discord") { Task { await loadConfigs() } }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bubble.left.fill")
+                            .font(.system(size: 11))
+                        Text("Add Discord")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .secondaryButton()
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    webhookPanel.show(channelType: "slack") { Task { await loadConfigs() } }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "number.square.fill")
+                            .font(.system(size: 11))
+                        Text("Add Slack")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .secondaryButton()
+                }
+                .buttonStyle(.plain)
             }
 
             Spacer()
@@ -1245,7 +1275,7 @@ struct NotificationSettingsView: View {
 
     private func notificationRow(config: NotificationConfigInfo, index: Int) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: config.type == "email" ? "envelope.fill" : "link")
+            Image(systemName: notificationTypeIcon(config.type))
                 .font(.system(size: 14))
                 .foregroundColor(.mfPrimary)
                 .frame(width: 28, height: 28)
@@ -1290,7 +1320,7 @@ struct NotificationSettingsView: View {
                 if config.type == "email" {
                     emailPanel.show(existingConfig: config) { Task { await loadConfigs() } }
                 } else {
-                    webhookPanel.show(existingConfig: config) { Task { await loadConfigs() } }
+                    webhookPanel.show(existingConfig: config, channelType: config.type) { Task { await loadConfigs() } }
                 }
             } label: {
                 Image(systemName: "pencil")
@@ -1351,6 +1381,17 @@ struct NotificationSettingsView: View {
             await loadConfigs()
         } catch {
             errorMessage = "Delete failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func notificationTypeIcon(_ type: String) -> String {
+        switch type {
+        case "email": return "envelope.fill"
+        case "discord": return "bubble.left.fill"
+        case "slack": return "number.square.fill"
+        case "telegram": return "paperplane.fill"
+        case "webhook": return "link"
+        default: return "bell.fill"
         }
     }
 }

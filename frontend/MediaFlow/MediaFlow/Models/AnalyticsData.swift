@@ -9,6 +9,9 @@ struct AnalyticsOverview: Codable {
     let totalSavingsAchieved: Int
     let avgCompressionRatio: Double
     let totalTranscodeTime: Double
+    var librariesSynced: Int = 0
+    var workersOnline: Int = 0
+    var lastAnalysisDate: String? = nil
 }
 
 struct StorageBreakdown: Codable {

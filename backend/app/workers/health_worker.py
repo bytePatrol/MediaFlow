@@ -240,6 +240,7 @@ class HealthWorker:
                         connected = await ssh.test_connection()
 
                         if connected:
+                            was_offline = server.status == "offline"
                             server.status = "online"
                             server.last_heartbeat_at = datetime.utcnow()
                             server.consecutive_failures = 0
@@ -252,6 +253,13 @@ class HealthWorker:
                                 "status": "online",
                                 **metrics,
                             })
+
+                            if was_offline:
+                                from app.utils.notify import fire_notification
+                                asyncio.ensure_future(fire_notification("server.online", {
+                                    "server_id": server.id,
+                                    "server_name": server.name,
+                                }))
                         else:
                             await self._handle_failure(server, session)
                     except Exception:
@@ -267,6 +275,12 @@ class HealthWorker:
                 "server_id": server.id,
                 "status": "offline",
             })
+            from app.utils.notify import fire_notification
+            import asyncio as _asyncio
+            _asyncio.ensure_future(fire_notification("server.offline", {
+                "server_id": server.id,
+                "server_name": server.name,
+            }))
 
         server.consecutive_failures = (server.consecutive_failures or 0) + 1
         _server_metrics.pop(server.id, None)

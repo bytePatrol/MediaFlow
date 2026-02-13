@@ -9,10 +9,17 @@ from app.schemas.notification import (
     NotificationConfigCreate,
     NotificationConfigUpdate,
     NotificationConfigResponse,
+    NOTIFICATION_EVENTS,
+    NotificationEventInfo,
 )
 from app.services.notification_service import NotificationService
 
 router = APIRouter()
+
+
+@router.get("/events")
+async def list_notification_events():
+    return [NotificationEventInfo(event=k, description=v) for k, v in NOTIFICATION_EVENTS.items()]
 
 
 @router.get("/", response_model=List[NotificationConfigResponse])
@@ -85,10 +92,17 @@ async def test_notification(config_id: int, session: AsyncSession = Depends(get_
     if not config:
         raise HTTPException(status_code=404, detail="Config not found")
 
+    config_data = config.config_json or {}
     if config.type == "email":
-        message = await NotificationService.test_email(config.config_json or {})
+        message = await NotificationService.test_email(config_data)
     elif config.type == "webhook":
-        message = await NotificationService.test_webhook(config.config_json or {})
+        message = await NotificationService.test_webhook(config_data)
+    elif config.type == "discord":
+        message = await NotificationService.test_discord(config_data)
+    elif config.type == "slack":
+        message = await NotificationService.test_slack(config_data)
+    elif config.type == "telegram":
+        message = await NotificationService.test_telegram(config_data)
     else:
         message = f"Test not supported for type: {config.type}"
 

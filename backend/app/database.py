@@ -71,6 +71,8 @@ async def _run_migrations(conn):
         ("recommendations", "priority_score", "FLOAT"),
         ("recommendations", "confidence", "FLOAT"),
         ("recommendations", "analysis_run_id", "INTEGER REFERENCES analysis_runs(id)"),
+        ("notification_configs", "last_triggered_at", "DATETIME"),
+        ("notification_configs", "trigger_count", "INTEGER DEFAULT 0"),
     ]
     for table, column, col_type in migrations:
         try:

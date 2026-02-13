@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct TranscodeJobCardView: View {
     let job: TranscodeJob
@@ -331,6 +332,32 @@ struct TranscodeJobCardView: View {
                     lineWidth: 1
                 )
         )
+        .contextMenu {
+            if let cmd = job.ffmpegCommand {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(cmd, forType: .string)
+                } label: {
+                    Label("Copy FFmpeg Command", systemImage: "terminal")
+                }
+            }
+            if let log = job.ffmpegLog, !log.isEmpty {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(log, forType: .string)
+                } label: {
+                    Label("Copy Log", systemImage: "doc.text")
+                }
+            }
+            if job.status == "transcoding" || job.status == "queued" || job.status == "transferring" {
+                Divider()
+                Button(role: .destructive) {
+                    onCancel?()
+                } label: {
+                    Label("Cancel Job", systemImage: "xmark.circle")
+                }
+            }
+        }
     }
 }
 

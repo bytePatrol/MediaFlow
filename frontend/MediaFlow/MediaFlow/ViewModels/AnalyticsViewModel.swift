@@ -5,8 +5,17 @@ class AnalyticsViewModel: ObservableObject {
     @Published var overview: AnalyticsOverview?
     @Published var storage: StorageBreakdown?
     @Published var codecs: CodecDistribution?
+    @Published var resolutions: ResolutionDistribution?
+    @Published var savingsHistory: [SavingsHistoryPoint] = []
+    @Published var trends: TrendsResponse?
+    @Published var predictions: PredictionResponse?
+    @Published var serverPerformance: [ServerPerformanceInfo] = []
+    @Published var healthScore: HealthScoreResponse?
+    @Published var topOpportunities: [SavingsOpportunity] = []
     @Published var cloudCosts: CloudCostSummary?
     @Published var isLoading: Bool = false
+    @Published var errorMessage: String?
+    @Published var selectedTimeRange: Int = 30
 
     private let service: BackendService
 
@@ -16,23 +25,63 @@ class AnalyticsViewModel: ObservableObject {
 
     func loadAll() async {
         isLoading = true
+        errorMessage = nil
+
+        // Load core data in parallel
         async let overviewTask = service.getAnalyticsOverview()
         async let storageTask = service.getStorageBreakdown()
         async let codecTask = service.getCodecDistribution()
+        async let resolutionTask = service.getResolutionDistribution()
+        async let healthTask = service.getHealthScore()
 
         do {
-            overview = try await overviewTask
-            storage = try await storageTask
-            codecs = try await codecTask
+            let (o, s, c, r, h) = try await (overviewTask, storageTask, codecTask, resolutionTask, healthTask)
+            overview = o
+            storage = s
+            codecs = c
+            resolutions = r
+            healthScore = h
         } catch {
-            print("Failed to load analytics: \(error)")
+            errorMessage = "Failed to load analytics: \(error.localizedDescription)"
         }
-        // Load cloud costs separately (non-blocking)
+
+        // Load time-dependent data in parallel
+        async let trendsTask = service.getTrends(days: selectedTimeRange)
+        async let predictionsTask = service.getPredictions()
+        async let historyTask = service.getSavingsHistory(days: selectedTimeRange)
+        async let perfTask = service.getServerPerformance()
+        async let oppsTask = service.getTopOpportunities()
+
         do {
-            cloudCosts = try await service.getCloudCostSummary()
+            let (t, p, hist, perf, opps) = try await (trendsTask, predictionsTask, historyTask, perfTask, oppsTask)
+            trends = t
+            predictions = p
+            savingsHistory = hist
+            serverPerformance = perf
+            topOpportunities = opps
         } catch {
-            // Cloud costs are optional — API may not have data yet
+            // Non-critical — partial load is OK
         }
+
+        // Cloud costs (optional, non-blocking)
+        do { cloudCosts = try await service.getCloudCostSummary() } catch {}
+
         isLoading = false
+    }
+
+    func refresh() async {
+        await loadAll()
+    }
+
+    func updateTimeRange(_ days: Int) async {
+        selectedTimeRange = days
+        // Reload time-dependent data
+        do {
+            async let trendsTask = service.getTrends(days: days)
+            async let historyTask = service.getSavingsHistory(days: days)
+            let (t, h) = try await (trendsTask, historyTask)
+            trends = t
+            savingsHistory = h
+        } catch {}
     }
 }

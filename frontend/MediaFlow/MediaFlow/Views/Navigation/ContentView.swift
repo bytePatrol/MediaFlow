@@ -73,6 +73,40 @@ struct ContentView: View {
             .padding(.horizontal, 240)
             .padding(.top, 12)
             .animation(.spring(response: 0.3, dampingFraction: 0.8), value: appState.toasts.count)
+
+            // Onboarding overlay
+            if !appState.hasCompletedOnboarding {
+                OnboardingView()
+                    .transition(.opacity)
+            }
         }
+        .background(
+            Group {
+                Button("") { appState.selectedNavItem = .library }
+                    .keyboardShortcut("1", modifiers: .command)
+                    .hidden()
+                Button("") { appState.selectedNavItem = .quickTranscode }
+                    .keyboardShortcut("2", modifiers: .command)
+                    .hidden()
+                Button("") { appState.selectedNavItem = .processing }
+                    .keyboardShortcut("3", modifiers: .command)
+                    .hidden()
+                Button("") { appState.selectedNavItem = .servers }
+                    .keyboardShortcut("4", modifiers: .command)
+                    .hidden()
+                Button("") { appState.selectedNavItem = .analytics }
+                    .keyboardShortcut("5", modifiers: .command)
+                    .hidden()
+                Button("") { appState.selectedNavItem = .intelligence }
+                    .keyboardShortcut("6", modifiers: .command)
+                    .hidden()
+                Button("") { appState.selectedNavItem = .settings }
+                    .keyboardShortcut("7", modifiers: .command)
+                    .hidden()
+                Button("") { appState.selectedNavItem = .logs }
+                    .keyboardShortcut("8", modifiers: .command)
+                    .hidden()
+            }
+        )
     }
 }

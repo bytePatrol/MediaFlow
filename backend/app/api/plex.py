@@ -214,6 +214,20 @@ async def _background_sync(server_id: int):
                 await service.sync_library(server)
                 logger.info(f"Background sync completed for {server.name}")
 
+                # Count synced items
+                from sqlalchemy import func as sql_func
+                from app.models.media_item import MediaItem
+                count_result = await session.execute(
+                    select(sql_func.count()).select_from(MediaItem)
+                )
+                item_count = count_result.scalar() or 0
+
+                from app.utils.notify import fire_notification
+                await fire_notification("sync.completed", {
+                    "server_name": server.name,
+                    "items_synced": item_count,
+                })
+
                 # Auto-run intelligence analysis if enabled
                 await _auto_analyze_after_sync(session)
     except Exception as e:

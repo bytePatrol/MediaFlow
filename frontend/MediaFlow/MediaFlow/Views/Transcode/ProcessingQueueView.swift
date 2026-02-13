@@ -2,6 +2,9 @@ import SwiftUI
 
 struct ProcessingQueueView: View {
     @EnvironmentObject var viewModel: TranscodeViewModel
+    @State private var showClearConfirm = false
+    @State private var showClearCacheConfirm = false
+    @State private var showPauseConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -59,7 +62,7 @@ struct ProcessingQueueView: View {
 
                 HStack(spacing: 8) {
                     Button {
-                        Task { await viewModel.clearFinished() }
+                        showClearConfirm = true
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "trash")
@@ -71,7 +74,7 @@ struct ProcessingQueueView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        Task { let _ = await viewModel.clearCache() }
+                        showClearCacheConfirm = true
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "internaldrive")
@@ -83,7 +86,7 @@ struct ProcessingQueueView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        Task { await viewModel.pauseAll() }
+                        showPauseConfirm = true
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "pause.circle")
@@ -231,6 +234,27 @@ struct ProcessingQueueView: View {
             // Refresh on tab switch — WebSocket keeps state alive between visits
             await viewModel.loadJobs()
             await viewModel.loadQueueStats()
+        }
+        .confirmationDialog("Clear all finished jobs?", isPresented: $showClearConfirm) {
+            Button("Clear All", role: .destructive) {
+                Task { await viewModel.clearFinished() }
+            }
+        } message: {
+            Text("This will remove all completed, failed, and cancelled jobs from the queue.")
+        }
+        .confirmationDialog("Clear transcode cache?", isPresented: $showClearCacheConfirm) {
+            Button("Clear Cache", role: .destructive) {
+                Task { let _ = await viewModel.clearCache() }
+            }
+        } message: {
+            Text("This will delete temporary transcode files from the working directory.")
+        }
+        .confirmationDialog("Pause all active jobs?", isPresented: $showPauseConfirm) {
+            Button("Pause All", role: .destructive) {
+                Task { await viewModel.pauseAll() }
+            }
+        } message: {
+            Text("All currently transcoding jobs will be paused.")
         }
     }
 }

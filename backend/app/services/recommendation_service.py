@@ -170,6 +170,17 @@ class RecommendationService:
         run.total_estimated_savings = total_savings
         await self.session.commit()
 
+        # Fire notification
+        try:
+            from app.utils.notify import fire_notification
+            await fire_notification("analysis.completed", {
+                "run_id": run.id,
+                "recommendations_generated": len(all_recs),
+                "total_estimated_savings": total_savings,
+            })
+        except Exception:
+            pass
+
         return {
             "run_id": run.id,
             "trigger": trigger,

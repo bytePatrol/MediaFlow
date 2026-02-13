@@ -62,6 +62,7 @@ struct SidebarView: View {
 }
 
 struct SidebarNavButton: View {
+    @EnvironmentObject var appState: AppState
     let item: NavigationItem
     let isSelected: Bool
     let action: () -> Void
@@ -75,8 +76,14 @@ struct SidebarNavButton: View {
                 Text(item.label)
                     .font(.system(size: item.isSubItem ? 12 : 13, weight: isSelected ? .semibold : .medium))
                 Spacer()
-                if item == .processing {
-                    // Active jobs badge could go here
+                if item == .processing && appState.activeJobCount > 0 {
+                    Text("\(appState.activeJobCount)")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.mfError)
+                        .clipShape(Capsule())
                 }
             }
             .foregroundColor(isSelected ? .mfPrimary : .mfTextSecondary)

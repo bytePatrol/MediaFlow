@@ -1,6 +1,6 @@
 # MediaFlow — Project Progress
 
-**Last Updated**: 2026-02-12
+**Last Updated**: 2026-02-13
 **GitHub**: https://github.com/bytePatrol/MediaFlow
 **License**: MIT
 
@@ -46,13 +46,13 @@ chmod +x run.sh
 
 | Area | Count |
 |------|-------|
-| Backend Python files | ~70 |
-| Frontend Swift files | ~58 |
-| API endpoints | 67 (57 original + 6 cloud + 2 manual transcode + 2 intelligence) |
+| Backend Python files | ~77 |
+| Frontend Swift files | ~64 |
+| API endpoints | 99 |
 | Database models (tables) | 16 |
-| Backend services | 13 |
+| Backend services | 14 (added notification helper) |
 | Background workers | 5 (transcode, health, cloud_monitor, sync, scheduler) |
-| Frontend views | 27 |
+| Frontend views | 32 (added OnboardingView, WebhookConfigPanel, EmailConfigPanel + more) |
 | Frontend view models | 8 |
 | Built-in transcode presets | 4 (Balanced, Storage Saver, Mobile Optimized, Ultra Fidelity) |
 
@@ -118,7 +118,7 @@ chmod +x run.sh
 - [x] Real-time server metrics via WebSocket
 - [x] **Cloud GPU on-demand transcoding (Vultr A16/A40)** ← NEW
 
-### Phase 5: Advanced Features — 70% COMPLETE
+### Phase 5: Advanced Features — 90% COMPLETE
 - [x] Analytics dashboard (overview, storage savings, codec/resolution charts)
 - [x] Job history with per-file stats
 - [x] Cost tracking for cloud VPS workers
@@ -126,21 +126,40 @@ chmod +x run.sh
 - [x] Server comparison view
 - [x] Logs view with filtering and export
 - [x] System diagnostics endpoint
-- [x] **Cloud cost analytics card with spend tracking** ← NEW
+- [x] **Cloud cost analytics card with spend tracking**
+- [x] **Trends & predictions** — week-over-week KPI trends + savings forecast (30/90/365d) ← NEW
+- [x] **Library health score** — weighted 0-100 score (codec 40%, bitrate 30%, container 15%, audio 15%) with letter grade ← NEW
+- [x] **Server performance metrics** — per-worker stats (FPS, compression, failure rate, cloud badge) ← NEW
+- [x] **Top savings opportunities** — ranked list of untranscoded files with estimated savings ← NEW
+- [x] **Time range filtering** — 7d/30d/90d/1y on analytics dashboard ← NEW
+- [x] **Resolution distribution chart** — bar chart (was loaded but never displayed, now shown) ← NEW
+- [x] **Filter presets CRUD** — save/load/delete filter presets in library view ← NEW
 - [ ] **Custom tagging system** (backend model exists, frontend UI pending)
 - [ ] **Batch metadata editing** (backend ready, frontend pending)
 - [ ] **Collection builder** (backend ready, frontend pending)
 
-### Phase 6: Polish & Integration — 50% COMPLETE
+### Phase 6: Polish & Integration — 90% COMPLETE
 - [x] WebSocket notifications for all events
 - [x] Active jobs dock (floating job progress)
 - [x] Quality badges with color coding
 - [x] Loading skeletons for async states
 - [x] Glassmorphic dark theme (#256af4 primary)
 - [x] NSPanel modals for proper keyboard focus (macOS SPM workaround)
-- [ ] **Email notifications** (backend service exists, UI config pending)
-- [ ] **Push notifications** (not started)
-- [ ] **Webhook notifications** (not started)
+- [x] **Email notifications** — SMTP config UI + test button ← NEW
+- [x] **Webhook notifications** — URL config UI + test button ← NEW
+- [x] **Discord notifications** — webhook dispatch with embed formatting + UI ← NEW
+- [x] **Slack notifications** — webhook dispatch with Block Kit formatting + UI ← NEW
+- [x] **Telegram notifications** — Bot API dispatch + UI ← NEW
+- [x] **Notification event registry** — 10 event types with descriptions, configurable per channel ← NEW
+- [x] **Notification wiring** — fire-and-forget from transcode worker, health worker, cloud monitor, plex sync, recommendation service ← NEW
+- [x] **Destructive action confirmations** — confirmation dialogs for Clear All, server delete, cloud teardown ← NEW
+- [x] **Keyboard shortcuts** — Cmd+1–8 sidebar navigation ← NEW
+- [x] **Sidebar active job badge** — red count badge on Processing nav item ← NEW
+- [x] **Context menus** — right-click on media rows (Copy Title, Select for Transcode) and job cards (Copy FFmpeg Command, Copy Log, Cancel) ← NEW
+- [x] **Hover & press micro-interactions** — `.hoverHighlight()`, `.hoverCard()`, `.pressEffect()` modifiers ← NEW
+- [x] **Settings tab animations** — smooth fade transitions between tabs ← NEW
+- [x] **First-run onboarding wizard** — 4-step overlay (Welcome → Connect Plex → Add Worker → Ready) ← NEW
+- [ ] **macOS push notifications** — System notification center integration
 
 ### Phase 7: Documentation & Release — COMPLETE (for public release)
 - [x] README.md with full feature docs, build instructions, API reference
@@ -159,13 +178,13 @@ Frontend (SwiftUI macOS 14+)
   └── MVVM pattern
   └── APIClient (REST) + WebSocketClient (real-time)
   └── BackendService (typed API wrapper)
-  └── 8 ViewModels → 27 Views
+  └── 8 ViewModels → 32 Views
 
 Backend (Python FastAPI, port 9876)
-  └── 15 API route files → 67 endpoints
-  └── 13 services (business logic)
+  └── 16 API route files → 99 endpoints
+  └── 14 services (business logic)
   └── 5 background workers (transcode, health, cloud_monitor, sync, scheduler)
-  └── 7 utility modules (SSH, FFmpeg, FFprobe, paths, security)
+  └── 8 utility modules (SSH, FFmpeg, FFprobe, paths, security, notify)
   └── SQLite with WAL mode, async via aiosqlite
   └── 16 ORM models
 ```
@@ -182,11 +201,14 @@ Backend (Python FastAPI, port 9876)
 | `/api/transcode` | transcode.py | 10 | Job CRUD, queue, dry-run, **probe, manual** |
 | `/api/presets` | presets.py | 5 | Encoding preset CRUD |
 | `/api/servers` | servers.py | 12 | Workers, provision, benchmark |
-| `/api/analytics` | analytics.py | 6 | Stats, charts, savings |
+| `/api/analytics` | analytics.py | 11 | Stats, charts, savings, **trends, predictions, health score, server performance, top opportunities** |
 | `/api/recommendations` | recommendations.py | 7 | Analysis, batch queue, **history, savings** |
 | `/api/settings` | settings.py | 3 | App configuration |
-| `/api/notifications` | notifications.py | 3 | Notification config |
+| `/api/notifications` | notifications.py | 6 | Notification config CRUD, **events registry, test** |
 | `/api/cloud` | cloud.py | 6 | **Cloud GPU deploy/teardown, plans, costs, settings** |
+| `/api/tags` | tags.py | — | Custom tag CRUD |
+| `/api/collections` | collections.py | — | Collection builder |
+| `/api/filter-presets` | filter_presets.py | 4 | **Filter preset CRUD** |
 | `/api/logs` | logs.py | 3 | Logs, diagnostics, export |
 | `/ws` | websocket.py | 1 | WebSocket pub/sub |
 
@@ -197,12 +219,13 @@ Backend (Python FastAPI, port 9876)
 | Feature Area | Views | ViewModel |
 |-------------|-------|-----------|
 | Navigation | ContentView, SidebarView | — |
-| Library | LibraryDashboardView, MediaTableView, MediaRowView, FilterSidebarView, FilterPillBarView | LibraryViewModel |
+| Onboarding | **OnboardingView** (4-step wizard) | PlexAuthViewModel |
+| Library | LibraryDashboardView, MediaTableView, MediaRowView, FilterSidebarView, FilterPillBarView, **CollectionBuilderPanel** | LibraryViewModel |
 | Transcode | ProcessingQueueView, **ManualTranscodeView**, TranscodeConfigModal, TranscodeJobCardView, ActiveJobsDockView | TranscodeViewModel, TranscodeConfigViewModel |
 | Servers | ServerManagementView, ServerCardView, AddServerSheet, **CloudDeployPanel**, ServerComparisonView | ServerManagementViewModel |
 | Analytics | AnalyticsDashboardView, StatisticsCardView | AnalyticsViewModel |
 | Intelligence | RecommendationsView, RecommendationCardView | RecommendationViewModel |
-| Settings | SettingsView (**incl. Intelligence, Cloud GPU tab, CloudAPIKeyPanel**) | PlexAuthViewModel |
+| Settings | SettingsView (**incl. Intelligence, Cloud GPU, Notifications tabs**), **EmailConfigPanel**, **WebhookConfigPanel** | PlexAuthViewModel |
 | Logs | LogsView | LogsViewModel |
 | Components | EmptyStateView, GlassPanel, LoadingSkeleton, QualityBadge, StatusIndicator | — |
 
@@ -227,7 +250,7 @@ Backend (Python FastAPI, port 9876)
 | MediaTag | media_tags | media_item_id, custom_tag_id (join table) |
 | AppSetting | app_settings | key, value (KV store) |
 | FilterPreset | filter_presets | name, filters (JSON) |
-| NotificationConfig | notification_configs | channel, events, enabled |
+| NotificationConfig | notification_configs | type, name, config_json, events, enabled, **last_triggered_at, trigger_count** |
 
 ---
 
@@ -519,6 +542,98 @@ Major overhaul of the Recommendations/Intelligence system with all 8 planned imp
 
 ---
 
+## Premium Polish — Analytics, UX, Notifications & Integrations (2026-02-13)
+
+Major polish pass transforming MediaFlow from "impressive side project" to "product worth paying for." 4 phases, ~30 files modified, 4 files created.
+
+### Phase 1: Analytics Dashboard Overhaul
+
+**Backend** — 5 new analytics endpoints added to `analytics_service.py` and `api/analytics.py`:
+- `GET /api/analytics/trends?days=30` — Week-over-week comparison for 4 metrics (items added, storage saved, jobs completed, avg compression) with direction and % change
+- `GET /api/analytics/predictions` — Linear extrapolation: daily savings rate → 30/90/365-day projections with confidence score
+- `GET /api/analytics/server-performance` — Per-worker stats from job_logs: total jobs, avg FPS, avg compression, total time, failure rate, cloud flag
+- `GET /api/analytics/health-score` — Weighted 0-100 score: modern codecs (40%), appropriate bitrates (30%), modern containers (15%), audio efficiency (15%). Returns letter grade A–F.
+- `GET /api/analytics/top-opportunities` — Top 10 largest untranscoded legacy-codec files with estimated savings
+
+**Frontend** — Full dashboard rewrite (`AnalyticsDashboardView.swift`) with 9 sections:
+1. Header with time range picker (7d/30d/90d/1y) + refresh
+2. Health Score hero card — circular gauge with letter grade and 4 metric bars
+3. Trend KPI cards — 4-column grid with directional arrows and % changes
+4. Predictions card — "At your current pace..." savings forecast
+5. Charts row — savings-over-time line chart + codec distribution donut
+6. Resolution distribution bar chart
+7. Server performance table (sortable, cloud badges)
+8. Top savings opportunities list with "Queue Transcode" action
+9. Cloud costs card (conditional)
+
+New models: `AnalyticsModels.swift` (11 types), enhanced `AnalyticsViewModel.swift` with parallel loading and time range state, 11 new `BackendService` methods.
+
+### Phase 2: UX Polish
+
+| Feature | Files Modified |
+|---------|---------------|
+| **Destructive action confirmations** — Clear All, Clear Cache, Pause All, server delete, cloud teardown | `ProcessingQueueView.swift`, `ServerManagementView.swift` |
+| **Keyboard shortcuts** — Cmd+1–8 for sidebar navigation | `ContentView.swift` |
+| **Active job badge** — red count on Processing sidebar item | `SidebarView.swift` |
+| **Context menus** — right-click on media rows + job cards | `MediaRowView.swift`, `TranscodeJobCardView.swift` |
+| **Hover/press modifiers** — `.hoverHighlight()`, `.hoverCard()`, `.pressEffect()` | `ViewExtensions.swift` |
+| **Settings tab animations** — smooth fade transitions | `SettingsView.swift` |
+| **Onboarding state** — `hasCompletedOnboarding` persisted via UserDefaults | `AppState.swift` |
+
+### Phase 3: Notifications & Integrations
+
+**Backend** — Expanded `notification_service.py` with 3 new dispatch methods:
+- `_send_discord(config, event, data)` — POST to Discord webhook with embed formatting (color-coded by event type)
+- `_send_slack(config, event, data)` — POST to Slack webhook with Block Kit formatting
+- `_send_telegram(config, event, data)` — POST to Telegram Bot API with Markdown
+
+**Notification Event Registry** — 10 events in `NOTIFICATION_EVENTS`:
+| Event | Description |
+|-------|-------------|
+| `job.completed` | When a transcode job finishes successfully |
+| `job.failed` | When a transcode job fails |
+| `analysis.completed` | When intelligence analysis completes |
+| `server.offline` | When a worker server goes offline |
+| `server.online` | When a worker server comes back online |
+| `cloud.deploy_completed` | When a cloud GPU instance is ready |
+| `cloud.teardown_completed` | When a cloud GPU is destroyed |
+| `cloud.spend_cap_reached` | When cloud spend exceeds the cap |
+| `queue.stalled` | When jobs are waiting but no workers are available |
+| `sync.completed` | When a Plex library sync finishes |
+
+**Event Wiring** — `fire_notification()` helper (`utils/notify.py`) called from:
+- `health_worker.py` → `server.offline` / `server.online`
+- `cloud_monitor.py` → `cloud.spend_cap_reached`
+- `api/plex.py` → `sync.completed`
+- `recommendation_service.py` → `analysis.completed`
+- `transcode_worker.py` already had `job.completed` / `job.failed`
+
+**Filter Presets API** — Full CRUD (`api/filter_presets.py`):
+- `GET /api/filter-presets/` — list all presets
+- `POST /api/filter-presets/` — create preset (name + filter_json)
+- `PUT /api/filter-presets/{id}` — update preset
+- `DELETE /api/filter-presets/{id}` — delete preset
+
+**Frontend**:
+- `NotificationSettingsView` redesigned — distinct icons per channel type (email, Discord, Slack, Telegram, webhook), Add Discord/Slack buttons, edit routing with `channelType` parameter
+- `WebhookConfigPanel` updated — dynamic labels/icons/placeholders per channel type
+- `LibraryDashboardView` — filter preset save/load/delete UI with Presets dropdown menu
+- `OnboardingView.swift` (NEW) — 4-step wizard: Welcome → Connect Plex (OAuth) → Add Worker → Ready
+
+### Files Created
+- `backend/app/utils/notify.py` — fire-and-forget notification helper
+- `backend/app/schemas/filter_preset.py` — Filter preset Pydantic schemas
+- `backend/app/api/filter_presets.py` — Filter preset CRUD endpoints
+- `frontend/.../Views/Onboarding/OnboardingView.swift` — 4-step onboarding wizard
+- `frontend/.../Models/AnalyticsModels.swift` — 11 new analytics model types
+
+### Files Modified (~30)
+**Backend**: `analytics_service.py`, `schemas/analytics.py`, `api/analytics.py`, `notification_service.py`, `notification_config.py`, `database.py`, `schemas/notification.py`, `api/notifications.py`, `api/router.py`, `health_worker.py`, `cloud_monitor.py`, `api/plex.py`, `recommendation_service.py`
+
+**Frontend**: `AnalyticsData.swift`, `BackendService.swift`, `AnalyticsViewModel.swift`, `AnalyticsDashboardView.swift`, `ViewExtensions.swift`, `ProcessingQueueView.swift`, `ServerManagementView.swift`, `ContentView.swift`, `SidebarView.swift`, `MediaRowView.swift`, `TranscodeJobCardView.swift`, `AppState.swift`, `SettingsView.swift`, `WebhookConfigPanel.swift`, `LibraryDashboardView.swift`
+
+---
+
 ## Known Issues & Tech Debt
 
 1. **SettingsView.swift:187** — Uses deprecated `onChange(of:perform:)` API. Should update to zero-parameter closure variant for macOS 14+.
@@ -581,13 +696,14 @@ asyncssh>=2.14.0
 - ~~Cloud worker auto-deploy~~ — **DONE** (2026-02-12).
 - ~~Manual Transcode / Quick Transcode~~ — **DONE** (2026-02-12).
 - ~~Intelligence system improvements (8x)~~ — **DONE** (2026-02-12). Learned ratios, priority scoring, auto-analyze, configurable thresholds, audio/container/HDR/batch analyzers, analysis run tracking.
+- ~~Premium Polish (analytics, UX, notifications)~~ — **DONE** (2026-02-13). 9-section analytics dashboard, 5 notification channels, onboarding wizard, keyboard shortcuts, context menus, filter presets, destructive action confirmations.
 
 ### Medium Priority
 1. **Custom tagging system frontend** — Backend model (CustomTag, MediaTag) exists. Need UI for creating tags, applying to media items, filtering by tags.
-2. **Email notification UI** — Backend NotificationService exists. Need Settings panel for configuring email (SMTP) and enabling per-event notifications.
-3. **Batch metadata editing UI** — Need modal for bulk-updating titles, genres, collections on selected media items.
-4. **Collection builder UI** — Auto-create Plex collections from filter criteria (e.g., "All Dolby Atmos Movies").
-5. **SettingsView deprecation fix** — Update onChange(of:perform:) to new syntax.
+2. **Batch metadata editing UI** — Need modal for bulk-updating titles, genres, collections on selected media items.
+3. **Collection builder UI** — Auto-create Plex collections from filter criteria (e.g., "All Dolby Atmos Movies").
+4. **SettingsView deprecation fix** — Update `onChange(of:perform:)` to new zero-parameter closure variant for macOS 14+.
+5. **Apply hover modifiers** — `.hoverHighlight()` / `.hoverCard()` modifiers exist but haven't been applied to sidebar buttons, server cards, recommendation cards, filter pills, analytics KPI cards.
 
 ### Low Priority
 6. **PDF health reports** — Export library analysis as PDF.
@@ -595,3 +711,4 @@ asyncssh>=2.14.0
 8. **App icon** — Currently using default Xcode icon.
 9. **macOS push notifications** — System notification center integration.
 10. **Intelligence enhancements** — Per-library analysis, schedule-based auto-analysis, recommendation grouping in UI.
+11. **Notification history view** — Show last 10 triggered notifications with timestamp, event, channel, status in Settings.

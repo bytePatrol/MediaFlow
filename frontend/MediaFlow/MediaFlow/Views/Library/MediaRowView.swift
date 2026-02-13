@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct MediaRowView: View {
     let item: MediaItem
@@ -67,6 +68,21 @@ struct MediaRowView: View {
         .padding(.vertical, 6)
         .background(isSelected ? Color.mfPrimary.opacity(0.05) : Color.clear)
         .contentShape(Rectangle())
+        .contextMenu {
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(item.title, forType: .string)
+            } label: {
+                Label("Copy Title", systemImage: "doc.on.doc")
+            }
+            Divider()
+            Button {
+                // Trigger transcode via selection toggle
+                onToggle()
+            } label: {
+                Label("Select for Transcode", systemImage: "wand.and.stars")
+            }
+        }
     }
 
     @ViewBuilder

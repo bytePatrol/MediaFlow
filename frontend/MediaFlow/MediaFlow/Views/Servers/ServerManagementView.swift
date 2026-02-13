@@ -8,6 +8,10 @@ struct ServerManagementView: View {
     @State private var cloudDeployPanel = CloudDeployPanel()
     @State private var showComparison = false
     @State private var showDestroyedCloud = false
+    @State private var serverToDelete: WorkerServer?
+    @State private var showDeleteConfirm = false
+    @State private var serverToTeardown: WorkerServer?
+    @State private var showTeardownConfirm = false
 
     private var activeServers: [WorkerServer] {
         viewModel.servers.filter { server in
@@ -188,6 +192,24 @@ struct ServerManagementView: View {
         .onDisappear {
             viewModel.disconnectWebSocket()
         }
+        .confirmationDialog("Delete server?", isPresented: $showDeleteConfirm) {
+            Button("Delete", role: .destructive) {
+                if let server = serverToDelete {
+                    Task { await viewModel.deleteServer(server) }
+                }
+            }
+        } message: {
+            Text("Remove \"\(serverToDelete?.name ?? "")\" from MediaFlow? This cannot be undone.")
+        }
+        .confirmationDialog("Tear down cloud instance?", isPresented: $showTeardownConfirm) {
+            Button("Tear Down", role: .destructive) {
+                if let server = serverToTeardown {
+                    Task { await viewModel.teardownCloudServer(server) }
+                }
+            }
+        } message: {
+            Text("Destroy the cloud GPU instance \"\(serverToTeardown?.name ?? "")\"? The instance will be terminated and all data on it will be lost.")
+        }
         .sheet(isPresented: $showComparison) {
             ServerComparisonView(servers: viewModel.servers, metrics: viewModel.serverMetrics, benchmarks: viewModel.benchmarkResults)
                 .frame(minWidth: 800, minHeight: 500)
@@ -216,7 +238,8 @@ struct ServerManagementView: View {
                         Task { await viewModel.updateServer(server.id, request: request) }
                     },
                     onDelete: {
-                        Task { await viewModel.deleteServer(server) }
+                        serverToDelete = server
+                        showDeleteConfirm = true
                     }
                 )
             },
@@ -227,7 +250,8 @@ struct ServerManagementView: View {
                 Task { await viewModel.triggerProvision(for: server) }
             },
             onTeardown: {
-                Task { await viewModel.teardownCloudServer(server) }
+                serverToTeardown = server
+                showTeardownConfirm = true
             }
         )
     }

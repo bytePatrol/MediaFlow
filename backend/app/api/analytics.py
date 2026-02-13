@@ -7,6 +7,8 @@ from app.services.analytics_service import AnalyticsService
 from app.schemas.analytics import (
     AnalyticsOverview, StorageBreakdown, CodecDistribution,
     ResolutionDistribution, SavingsHistoryPoint, JobHistoryEntry,
+    TrendsResponse, PredictionResponse, ServerPerformance,
+    HealthScoreResponse, SavingsOpportunity,
 )
 
 router = APIRouter()
@@ -53,3 +55,36 @@ async def get_job_history(
 ):
     service = AnalyticsService(session)
     return await service.get_job_history(page=page, page_size=page_size)
+
+
+@router.get("/trends", response_model=TrendsResponse)
+async def get_trends(
+    days: int = Query(30, ge=7, le=365),
+    session: AsyncSession = Depends(get_session),
+):
+    service = AnalyticsService(session)
+    return await service.get_trends(days=days)
+
+
+@router.get("/predictions", response_model=PredictionResponse)
+async def get_predictions(session: AsyncSession = Depends(get_session)):
+    service = AnalyticsService(session)
+    return await service.get_predictions()
+
+
+@router.get("/server-performance")
+async def get_server_performance(session: AsyncSession = Depends(get_session)):
+    service = AnalyticsService(session)
+    return await service.get_server_performance()
+
+
+@router.get("/health-score", response_model=HealthScoreResponse)
+async def get_health_score(session: AsyncSession = Depends(get_session)):
+    service = AnalyticsService(session)
+    return await service.get_health_score()
+
+
+@router.get("/top-opportunities")
+async def get_top_opportunities(session: AsyncSession = Depends(get_session)):
+    service = AnalyticsService(session)
+    return await service.get_top_opportunities()

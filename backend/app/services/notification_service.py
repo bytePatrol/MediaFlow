@@ -32,8 +32,18 @@ class NotificationService:
             await self._send_webhook(config.config_json, event, data)
         elif config.type == "email":
             await self._send_email(config.config_json, event, data)
+        elif config.type == "discord":
+            await self._send_discord(config.config_json or {}, event, data)
+        elif config.type == "slack":
+            await self._send_slack(config.config_json or {}, event, data)
+        elif config.type == "telegram":
+            await self._send_telegram(config.config_json or {}, event, data)
         elif config.type == "push":
             logger.info(f"Push notification: {event} - {data}")
+        # Update trigger tracking
+        from datetime import datetime as dt
+        config.last_triggered_at = dt.utcnow()
+        config.trigger_count = (config.trigger_count or 0) + 1
 
     async def _send_webhook(self, config: dict, event: str, data: Dict[str, Any]):
         import httpx
@@ -86,11 +96,101 @@ class NotificationService:
             logger.error(f"Email send failed: {e}")
             raise
 
+    async def _send_discord(self, config: dict, event: str, data: Dict[str, Any]):
+        """Send notification to Discord via webhook."""
+        import httpx
+        url = config.get("webhook_url") or config.get("url")
+        if not url:
+            return
+
+        subject = self._format_subject(event, data)
+        body_text = self._format_plain_body(event, data)
+
+        # Discord embed
+        color_map = {"job.completed": 0x38a169, "job.failed": 0xe53e3e, "server.offline": 0xe53e3e,
+                     "server.online": 0x38a169, "cloud.spend_cap_reached": 0xf59e0b}
+        color = color_map.get(event, 0x256af4)
+
+        payload = {
+            "embeds": [{
+                "title": subject,
+                "description": body_text,
+                "color": color,
+                "footer": {"text": "MediaFlow"},
+                "timestamp": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+            }]
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, json=payload)
+                resp.raise_for_status()
+        except Exception as e:
+            logger.error(f"Discord webhook failed: {e}")
+            raise
+
+    async def _send_slack(self, config: dict, event: str, data: Dict[str, Any]):
+        """Send notification to Slack via webhook."""
+        import httpx
+        url = config.get("webhook_url") or config.get("url")
+        if not url:
+            return
+
+        subject = self._format_subject(event, data)
+        body_text = self._format_plain_body(event, data)
+
+        # Slack Block Kit
+        payload = {
+            "blocks": [
+                {"type": "header", "text": {"type": "plain_text", "text": subject}},
+                {"type": "section", "text": {"type": "mrkdwn", "text": body_text}},
+                {"type": "context", "elements": [
+                    {"type": "mrkdwn", "text": f"_MediaFlow • {event}_"}
+                ]},
+            ]
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, json=payload)
+                resp.raise_for_status()
+        except Exception as e:
+            logger.error(f"Slack webhook failed: {e}")
+            raise
+
+    async def _send_telegram(self, config: dict, event: str, data: Dict[str, Any]):
+        """Send notification via Telegram Bot API."""
+        import httpx
+        bot_token = config.get("bot_token")
+        chat_id = config.get("chat_id")
+        if not bot_token or not chat_id:
+            return
+
+        subject = self._format_subject(event, data)
+        body_text = self._format_plain_body(event, data)
+        text = f"*{subject}*\n\n{body_text}"
+
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, json=payload)
+                resp.raise_for_status()
+        except Exception as e:
+            logger.error(f"Telegram send failed: {e}")
+            raise
+
     @staticmethod
     def _format_subject(event: str, data: Dict[str, Any]) -> str:
         event_labels = {
             "job.completed": "Transcode Job Completed",
             "job.failed": "Transcode Job Failed",
+            "analysis.completed": "Analysis Completed",
+            "server.offline": "Server Offline",
+            "server.online": "Server Online",
+            "cloud.deploy_completed": "Cloud GPU Deployed",
+            "cloud.teardown_completed": "Cloud GPU Torn Down",
+            "cloud.spend_cap_reached": "Spend Cap Reached",
+            "queue.stalled": "Queue Stalled",
+            "sync.completed": "Library Sync Completed",
         }
         label = event_labels.get(event, event.replace(".", " ").title())
         job_id = data.get("job_id", "")
@@ -140,6 +240,37 @@ class NotificationService:
             """
 
     @staticmethod
+    def _format_plain_body(event: str, data: Dict[str, Any]) -> str:
+        """Plain text body for Discord/Slack/Telegram."""
+        if event == "job.completed":
+            output_size = data.get("output_size")
+            duration = data.get("duration")
+            size_str = f"{output_size / (1024*1024):.1f} MB" if output_size else "N/A"
+            dur_str = f"{duration:.1f}s" if duration else "N/A"
+            return f"Job #{data.get('job_id', 'N/A')} completed • Output: {size_str} • Duration: {dur_str}"
+        elif event == "job.failed":
+            return f"Job #{data.get('job_id', 'N/A')} failed: {data.get('error', 'Unknown error')}"
+        elif event == "analysis.completed":
+            return (f"Analysis found {data.get('recommendations_generated', 0)} recommendations, "
+                    f"{data.get('total_estimated_savings', 0) / 1_000_000_000:.1f} GB potential savings")
+        elif event == "server.offline":
+            return f"Worker server \"{data.get('server_name', 'Unknown')}\" went offline"
+        elif event == "server.online":
+            return f"Worker server \"{data.get('server_name', 'Unknown')}\" came back online"
+        elif event == "cloud.deploy_completed":
+            return f"Cloud GPU deployed: {data.get('hostname', 'Unknown')} at ${data.get('hourly_cost', 0):.2f}/hr"
+        elif event == "cloud.teardown_completed":
+            return f"Cloud GPU torn down. Total cost: ${data.get('total_cost', 0):.2f}"
+        elif event == "cloud.spend_cap_reached":
+            return f"Spend cap reached: ${data.get('current_cost', 0):.2f} (cap: ${data.get('cap', 0):.2f})"
+        elif event == "sync.completed":
+            return f"Library sync completed: {data.get('items_synced', 0)} items found"
+        elif event == "queue.stalled":
+            return f"Queue stalled: {data.get('waiting_jobs', 0)} jobs waiting, no workers available"
+        else:
+            return f"{event}: {data}"
+
+    @staticmethod
     async def test_email(config: Dict[str, Any]) -> str:
         """Send a test email and return status message."""
         service = NotificationService.__new__(NotificationService)
@@ -163,3 +294,30 @@ class NotificationService:
             return "Test webhook sent successfully"
         except Exception as e:
             return f"Test webhook failed: {e}"
+
+    @staticmethod
+    async def test_discord(config: Dict[str, Any]) -> str:
+        service = NotificationService.__new__(NotificationService)
+        try:
+            await service._send_discord(config, "test", {"message": "Test notification from MediaFlow."})
+            return "Test Discord notification sent successfully"
+        except Exception as e:
+            return f"Test Discord notification failed: {e}"
+
+    @staticmethod
+    async def test_slack(config: Dict[str, Any]) -> str:
+        service = NotificationService.__new__(NotificationService)
+        try:
+            await service._send_slack(config, "test", {"message": "Test notification from MediaFlow."})
+            return "Test Slack notification sent successfully"
+        except Exception as e:
+            return f"Test Slack notification failed: {e}"
+
+    @staticmethod
+    async def test_telegram(config: Dict[str, Any]) -> str:
+        service = NotificationService.__new__(NotificationService)
+        try:
+            await service._send_telegram(config, "test", {"message": "Test notification from MediaFlow."})
+            return "Test Telegram notification sent successfully"
+        except Exception as e:
+            return f"Test Telegram notification failed: {e}"

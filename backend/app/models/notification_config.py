@@ -11,5 +11,7 @@ class NotificationConfig(Base):
     config_json = Column(JSON, nullable=True)
     events = Column(JSON, nullable=True)
     is_enabled = Column(Boolean, default=True)
+    last_triggered_at = Column(DateTime, nullable=True)
+    trigger_count = Column(Integer, default=0)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
