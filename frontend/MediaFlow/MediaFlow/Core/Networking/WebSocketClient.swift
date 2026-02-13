@@ -67,7 +67,10 @@ class WebSocketClient: ObservableObject {
     }
 
     convenience init(urlString: String = "ws://localhost:9876/ws") {
-        self.init(url: URL(string: urlString)!)
+        guard let url = URL(string: urlString) else {
+            fatalError("Invalid WebSocket URL: \(urlString)")
+        }
+        self.init(url: url)
     }
 
     func connect() {

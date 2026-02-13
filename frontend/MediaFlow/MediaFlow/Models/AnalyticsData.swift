@@ -23,9 +23,3 @@ struct CodecDistribution: Codable {
     let counts: [Int]
     let sizes: [Int]
 }
-
-struct ResolutionDistribution: Codable {
-    let resolutions: [String]
-    let counts: [Int]
-    let sizes: [Int]
-}

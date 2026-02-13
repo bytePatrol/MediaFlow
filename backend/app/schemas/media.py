@@ -41,17 +41,6 @@ class MediaItemResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class MediaItemBrief(BaseModel):
-    id: int
-    title: str
-    year: Optional[int] = None
-    resolution_tier: Optional[str] = None
-    video_codec: Optional[str] = None
-    file_size: Optional[int] = None
-
-    model_config = {"from_attributes": True}
-
-
 class LibraryStatsResponse(BaseModel):
     total_items: int
     total_size: int

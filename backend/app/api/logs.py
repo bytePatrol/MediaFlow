@@ -69,8 +69,6 @@ async def get_logs(
 @router.get("/logs/diagnostics")
 async def get_diagnostics():
     """Return system and app diagnostic information."""
-    import app
-
     # Disk usage for temp dir
     working_dir = "/tmp/mediaflow"
     cache_size = 0

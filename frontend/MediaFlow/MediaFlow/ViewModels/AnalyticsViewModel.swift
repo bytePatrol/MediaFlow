@@ -5,7 +5,6 @@ class AnalyticsViewModel: ObservableObject {
     @Published var overview: AnalyticsOverview?
     @Published var storage: StorageBreakdown?
     @Published var codecs: CodecDistribution?
-    @Published var resolutions: ResolutionDistribution?
     @Published var cloudCosts: CloudCostSummary?
     @Published var isLoading: Bool = false
 
