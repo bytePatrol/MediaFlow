@@ -2,15 +2,16 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-struct ManualTranscodeView: View {
+struct QuickTranscodePageView: View {
+    @EnvironmentObject var appState: AppState
     @EnvironmentObject var viewModel: TranscodeViewModel
 
-    @State private var isCollapsed = false
     @State private var selectedFilePath: String?
     @State private var probeResult: ProbeResult?
     @State private var isProbing = false
     @State private var isSubmitting = false
     @State private var errorMessage: String?
+    @State private var successMessage: String?
 
     // Settings state
     @State private var presets: [TranscodePreset] = []
@@ -29,50 +30,62 @@ struct ManualTranscodeView: View {
     private let videoFileTypes = ["mkv", "mp4", "avi", "mov", "wmv", "ts", "m4v", "webm"]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isCollapsed.toggle()
-                }
-            } label: {
-                HStack(spacing: 8) {
+        VStack(spacing: 0) {
+            // Page header
+            HStack(spacing: 20) {
+                HStack(spacing: 10) {
                     Image(systemName: "bolt.fill")
-                        .font(.system(size: 12))
+                        .font(.system(size: 20))
                         .foregroundColor(.mfPrimary)
                     Text("Quick Transcode")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.mfTextPrimary)
-                    Spacer()
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.mfTextMuted)
+                        .font(.mfHeadline)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
+
+                Divider()
+                    .frame(height: 30)
+
+                Text("Transcode any local video file outside of your Plex library")
+                    .font(.system(size: 12))
+                    .foregroundColor(.mfTextMuted)
+
+                Spacer()
+
+                Button {
+                    appState.selectedNavItem = .processing
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "gearshape.2")
+                            .font(.system(size: 11))
+                        Text("View Queue")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .secondaryButton()
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .padding(20)
             .background(Color.mfSurface)
+            .overlay(Rectangle().frame(height: 1).foregroundColor(.mfGlassBorder), alignment: .bottom)
 
-            if !isCollapsed {
-                HStack(alignment: .top, spacing: 16) {
-                    // Left: File selection / drop zone
-                    fileSelectionPanel
-                        .frame(minWidth: 280, maxWidth: 340)
+            // Main content
+            ScrollView {
+                VStack(spacing: 24) {
+                    HStack(alignment: .top, spacing: 24) {
+                        // Left: File selection / drop zone
+                        fileSelectionPanel
+                            .frame(minWidth: 320, idealWidth: 400, maxWidth: 480)
 
-                    // Right: Settings
-                    settingsPanel
-                        .frame(minWidth: 300)
+                        // Right: Settings
+                        settingsPanel
+                            .frame(minWidth: 360)
+                    }
+                    .padding(24)
+                    .glassPanel(cornerRadius: 12)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-                .background(Color.mfSurface.opacity(0.5))
+                .padding(24)
             }
-
-            Rectangle()
-                .fill(Color.mfGlassBorder)
-                .frame(height: 1)
         }
+        .background(Color.mfBackground)
         .task {
             await loadPresets()
             await loadServers()
@@ -82,16 +95,16 @@ struct ManualTranscodeView: View {
     // MARK: - File Selection Panel
 
     private var fileSelectionPanel: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             if let probe = probeResult {
                 // File info display
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 8) {
                         Image(systemName: "film")
-                            .font(.system(size: 14))
+                            .font(.system(size: 16))
                             .foregroundColor(.mfPrimary)
                         Text(URL(fileURLWithPath: probe.filePath).lastPathComponent)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.mfTextPrimary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -100,17 +113,24 @@ struct ManualTranscodeView: View {
                             clearSelection()
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 14))
+                                .font(.system(size: 16))
                                 .foregroundColor(.mfTextMuted)
                         }
                         .buttonStyle(.plain)
                     }
 
+                    Text(probe.filePath)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.mfTextMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
                     // Media info grid
                     LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 8),
-                        GridItem(.flexible(), spacing: 8),
-                    ], spacing: 8) {
+                        GridItem(.flexible(), spacing: 10),
+                        GridItem(.flexible(), spacing: 10),
+                        GridItem(.flexible(), spacing: 10),
+                    ], spacing: 10) {
                         infoChip(label: "Resolution", value: probe.resolution ?? "--")
                         infoChip(label: "Codec", value: (probe.videoCodec ?? "--").uppercased())
                         infoChip(label: "Bitrate", value: probe.formattedBitrate)
@@ -119,38 +139,38 @@ struct ManualTranscodeView: View {
                         infoChip(label: "Audio", value: audioDescription(probe))
                     }
                 }
-                .padding(14)
+                .padding(16)
                 .glassPanel(cornerRadius: 10)
             } else {
                 // Drop zone
-                VStack(spacing: 10) {
+                VStack(spacing: 14) {
                     if isProbing {
                         ProgressView()
-                            .scaleEffect(0.8)
+                            .scaleEffect(0.9)
                         Text("Analyzing file...")
-                            .font(.system(size: 11))
+                            .font(.system(size: 12))
                             .foregroundColor(.mfTextMuted)
                     } else {
                         Image(systemName: "doc.badge.plus")
-                            .font(.system(size: 24))
+                            .font(.system(size: 36))
                             .foregroundColor(.mfTextMuted)
                         Text("Select File or Drag & Drop")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.mfTextSecondary)
-                        Text("MKV, MP4, AVI, MOV, TS, M4V")
-                            .font(.system(size: 10))
+                        Text("MKV, MP4, AVI, MOV, TS, M4V, WEBM")
+                            .font(.system(size: 11))
                             .foregroundColor(.mfTextMuted)
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 120)
+                .frame(minHeight: 200)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [8, 5]))
                         .foregroundColor(.mfGlassBorder)
                 )
                 .background(Color.mfGlass)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
                 .onTapGesture {
                     openFilePicker()
                 }
@@ -161,9 +181,23 @@ struct ManualTranscodeView: View {
             }
 
             if let error = errorMessage {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundColor(.mfError)
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                    Text(error)
+                        .font(.system(size: 11))
+                }
+                .foregroundColor(.mfError)
+            }
+
+            if let success = successMessage {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 11))
+                    Text(success)
+                        .font(.system(size: 11))
+                }
+                .foregroundColor(.mfSuccess)
             }
         }
     }
@@ -171,34 +205,34 @@ struct ManualTranscodeView: View {
     // MARK: - Settings Panel
 
     private var settingsPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             // Preset row
             if !presets.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("PRESET")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(.mfTextMuted)
                         .tracking(1)
 
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             ForEach(presets) { preset in
                                 Button {
                                     applyPreset(preset)
                                 } label: {
-                                    HStack(spacing: 4) {
+                                    HStack(spacing: 5) {
                                         Image(systemName: preset.iconName)
-                                            .font(.system(size: 10))
+                                            .font(.system(size: 11))
                                         Text(preset.name)
-                                            .font(.system(size: 11, weight: .medium))
+                                            .font(.system(size: 12, weight: .medium))
                                     }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
                                     .background(selectedPreset?.id == preset.id ? Color.mfPrimary.opacity(0.2) : Color.mfSurfaceLight)
                                     .foregroundColor(selectedPreset?.id == preset.id ? .mfPrimary : .mfTextSecondary)
-                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    .clipShape(RoundedRectangle(cornerRadius: 7))
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
+                                        RoundedRectangle(cornerRadius: 7)
                                             .stroke(selectedPreset?.id == preset.id ? Color.mfPrimary.opacity(0.4) : Color.mfGlassBorder, lineWidth: 1)
                                     )
                                 }
@@ -210,8 +244,8 @@ struct ManualTranscodeView: View {
             }
 
             // Codec + Container row
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("CODEC")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(.mfTextMuted)
@@ -225,7 +259,7 @@ struct ManualTranscodeView: View {
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.mfGlassBorder, lineWidth: 1))
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("CONTAINER")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(.mfTextMuted)
@@ -240,8 +274,8 @@ struct ManualTranscodeView: View {
             }
 
             // Resolution + Audio row
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("RESOLUTION")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(.mfTextMuted)
@@ -254,10 +288,10 @@ struct ManualTranscodeView: View {
                         Text("SD").tag("SD")
                     }
                     .labelsHidden()
-                    .frame(width: 100)
+                    .frame(width: 110)
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("AUDIO")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(.mfTextMuted)
@@ -272,7 +306,7 @@ struct ManualTranscodeView: View {
             }
 
             // Bitrate slider
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text("QUALITY (CRF)")
                         .font(.system(size: 9, weight: .bold))
@@ -280,7 +314,7 @@ struct ManualTranscodeView: View {
                         .tracking(1)
                     Spacer()
                     Text("\(Int(crfValue))")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
                         .foregroundColor(.mfTextPrimary)
                 }
                 Slider(value: $crfValue, in: 15...35, step: 1)
@@ -297,8 +331,8 @@ struct ManualTranscodeView: View {
             }
 
             // Server picker + Start button row
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("SERVER")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(.mfTextMuted)
@@ -310,7 +344,7 @@ struct ManualTranscodeView: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 120)
+                    .frame(width: 130)
                 }
 
                 Spacer()
@@ -318,21 +352,21 @@ struct ManualTranscodeView: View {
                 Button {
                     Task { await startTranscode() }
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 8) {
                         if isSubmitting {
                             ProgressView()
                                 .scaleEffect(0.6)
-                                .frame(width: 12, height: 12)
+                                .frame(width: 14, height: 14)
                         } else {
                             Image(systemName: "play.fill")
-                                .font(.system(size: 11))
+                                .font(.system(size: 12))
                         }
                         Text("Start Transcode")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                     }
                     .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
                     .background(probeResult != nil && !isSubmitting ? Color.mfPrimary : Color.mfPrimary.opacity(0.4))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
@@ -352,8 +386,8 @@ struct ManualTranscodeView: View {
             Text(label)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(videoCodec == value ? .mfPrimary : .mfTextSecondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .background(videoCodec == value ? Color.mfPrimary.opacity(0.15) : Color.mfSurfaceLight)
         }
         .buttonStyle(.plain)
@@ -367,8 +401,8 @@ struct ManualTranscodeView: View {
             Text(label)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(container == value ? .mfPrimary : .mfTextSecondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .background(container == value ? Color.mfPrimary.opacity(0.15) : Color.mfSurfaceLight)
         }
         .buttonStyle(.plain)
@@ -382,21 +416,21 @@ struct ManualTranscodeView: View {
             Text(label)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(audioMode == value ? .mfPrimary : .mfTextSecondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .background(audioMode == value ? Color.mfPrimary.opacity(0.15) : Color.mfSurfaceLight)
         }
         .buttonStyle(.plain)
     }
 
     private func infoChip(label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(label.uppercased())
                 .font(.system(size: 8, weight: .bold))
                 .foregroundColor(.mfTextMuted)
                 .tracking(0.5)
             Text(value)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundColor(.mfTextPrimary)
                 .lineLimit(1)
         }
@@ -447,6 +481,7 @@ struct ManualTranscodeView: View {
         selectedFilePath = path
         probeResult = nil
         errorMessage = nil
+        successMessage = nil
         isProbing = true
         do {
             probeResult = try await service.probeFile(path: path)
@@ -460,6 +495,7 @@ struct ManualTranscodeView: View {
         selectedFilePath = nil
         probeResult = nil
         errorMessage = nil
+        successMessage = nil
     }
 
     private func applyPreset(_ preset: TranscodePreset) {
@@ -491,6 +527,7 @@ struct ManualTranscodeView: View {
         guard let probe = probeResult else { return }
         isSubmitting = true
         errorMessage = nil
+        successMessage = nil
 
         var config: [String: AnyCodable] = [
             "video_codec": AnyCodable(videoCodec),
@@ -514,9 +551,11 @@ struct ManualTranscodeView: View {
 
         do {
             _ = try await service.createManualTranscodeJob(request: request)
-            // Clear file selection after successful submission
-            clearSelection()
-            // Refresh job list
+            let fileName = URL(fileURLWithPath: probe.filePath).lastPathComponent
+            selectedFilePath = nil
+            probeResult = nil
+            errorMessage = nil
+            successMessage = "Job queued for \(fileName) — view in Processing queue"
             await viewModel.loadJobs()
             await viewModel.loadQueueStats()
         } catch {

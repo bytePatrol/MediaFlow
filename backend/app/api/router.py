@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api import plex, library, transcode, presets, servers, analytics, recommendations, settings, health, notifications, logs, cloud, tags
+from app.api import plex, library, transcode, presets, servers, analytics, recommendations, settings, health, notifications, logs, cloud, tags, collections
 
 api_router = APIRouter()
 
@@ -16,3 +16,4 @@ api_router.include_router(notifications.router, prefix="/notifications", tags=["
 api_router.include_router(logs.router, tags=["logs"])
 api_router.include_router(cloud.router, prefix="/cloud", tags=["cloud"])
 api_router.include_router(tags.router, prefix="/tags", tags=["tags"])
+api_router.include_router(collections.router, prefix="/collections", tags=["collections"])

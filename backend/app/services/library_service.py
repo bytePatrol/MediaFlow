@@ -191,6 +191,7 @@ class LibraryService:
                 "total_items": lib.total_items or 0,
                 "total_size": lib.total_size or 0,
                 "server_name": server_name,
+                "server_id": lib.plex_server_id,
             })
         return sections
 

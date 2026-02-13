@@ -159,10 +159,6 @@ struct ProcessingQueueView: View {
                 }
             }
 
-            // Quick Transcode section
-            ManualTranscodeView()
-                .environmentObject(viewModel)
-
             // Main content
             HSplitView {
                 // Sidebar Filters

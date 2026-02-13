@@ -1163,26 +1163,191 @@ struct CloudAPIKeyPanelContent: View {
 }
 
 struct NotificationSettingsView: View {
-    @State private var jobCompleted: Bool = true
-    @State private var jobFailed: Bool = true
-    @State private var serverOffline: Bool = true
-    @State private var batchCompleted: Bool = false
+    @State private var configs: [NotificationConfigInfo] = []
+    @State private var isLoading: Bool = true
+    @State private var errorMessage: String = ""
+    @State private var emailPanel = EmailConfigPanel()
+    @State private var webhookPanel = WebhookConfigPanel()
+
+    private let service = BackendService()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("NOTIFICATION EVENTS")
+                Text("NOTIFICATION CHANNELS")
                     .mfSectionHeader()
 
-                Toggle("Job Completed", isOn: $jobCompleted)
-                Toggle("Job Failed", isOn: $jobFailed)
-                Toggle("Server Offline", isOn: $serverOffline)
-                Toggle("Batch Completed", isOn: $batchCompleted)
+                if isLoading {
+                    HStack {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading...")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextSecondary)
+                    }
+                } else if configs.isEmpty {
+                    Text("No notification channels configured yet.")
+                        .font(.mfBody)
+                        .foregroundColor(.mfTextMuted)
+                } else {
+                    ForEach(Array(configs.enumerated()), id: \.element.id) { index, config in
+                        notificationRow(config: config, index: index)
+                        if index < configs.count - 1 {
+                            Divider().background(Color.mfGlassBorder)
+                        }
+                    }
+                }
+
+                if !errorMessage.isEmpty {
+                    Text(errorMessage)
+                        .font(.mfCaption)
+                        .foregroundColor(.mfError)
+                }
             }
             .padding(20)
             .cardStyle()
 
+            HStack(spacing: 10) {
+                Button {
+                    emailPanel.show { Task { await loadConfigs() } }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "envelope.fill")
+                            .font(.system(size: 11))
+                        Text("Add Email")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .secondaryButton()
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    webhookPanel.show { Task { await loadConfigs() } }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "link")
+                            .font(.system(size: 11))
+                        Text("Add Webhook")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .secondaryButton()
+                }
+                .buttonStyle(.plain)
+            }
+
             Spacer()
+        }
+        .task { await loadConfigs() }
+    }
+
+    private func notificationRow(config: NotificationConfigInfo, index: Int) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: config.type == "email" ? "envelope.fill" : "link")
+                .font(.system(size: 14))
+                .foregroundColor(.mfPrimary)
+                .frame(width: 28, height: 28)
+                .background(Color.mfPrimary.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(config.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.mfTextPrimary)
+                Text(config.type.capitalized)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.mfTextMuted)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.mfSurfaceLight)
+                    .clipShape(Capsule())
+            }
+
+            Spacer()
+
+            Toggle("", isOn: Binding(
+                get: { config.isEnabled },
+                set: { newValue in
+                    Task { await toggleEnabled(config: config, enabled: newValue) }
+                }
+            ))
+            .toggleStyle(.switch)
+            .labelsHidden()
+
+            Button {
+                Task { await testConfig(config: config) }
+            } label: {
+                Image(systemName: "paperplane")
+                    .font(.system(size: 11))
+                    .foregroundColor(.mfTextMuted)
+            }
+            .buttonStyle(.plain)
+            .help("Send test notification")
+
+            Button {
+                if config.type == "email" {
+                    emailPanel.show(existingConfig: config) { Task { await loadConfigs() } }
+                } else {
+                    webhookPanel.show(existingConfig: config) { Task { await loadConfigs() } }
+                }
+            } label: {
+                Image(systemName: "pencil")
+                    .font(.system(size: 11))
+                    .foregroundColor(.mfTextMuted)
+            }
+            .buttonStyle(.plain)
+            .help("Edit")
+
+            Button {
+                Task { await deleteConfig(config: config) }
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 11))
+                    .foregroundColor(.mfTextMuted)
+            }
+            .buttonStyle(.plain)
+            .help("Delete")
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func loadConfigs() async {
+        isLoading = true
+        errorMessage = ""
+        do {
+            configs = try await service.getNotificationConfigs()
+        } catch {
+            errorMessage = "Failed to load: \(error.localizedDescription)"
+        }
+        isLoading = false
+    }
+
+    private func toggleEnabled(config: NotificationConfigInfo, enabled: Bool) async {
+        do {
+            _ = try await service.updateNotificationConfig(
+                id: config.id,
+                request: NotificationConfigUpdateRequest(isEnabled: enabled)
+            )
+            await loadConfigs()
+        } catch {
+            errorMessage = "Update failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func testConfig(config: NotificationConfigInfo) async {
+        do {
+            let result = try await service.testNotification(id: config.id)
+            errorMessage = result.message
+        } catch {
+            errorMessage = "Test failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func deleteConfig(config: NotificationConfigInfo) async {
+        do {
+            try await service.deleteNotificationConfig(id: config.id)
+            await loadConfigs()
+        } catch {
+            errorMessage = "Delete failed: \(error.localizedDescription)"
         }
     }
 }

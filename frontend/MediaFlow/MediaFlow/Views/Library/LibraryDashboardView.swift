@@ -9,6 +9,7 @@ struct LibraryDashboardView: View {
     @State private var showManageTags: Bool = false
     @State private var newTagName: String = ""
     @State private var newTagColor: String = "#256af4"
+    @State private var collectionPanel = CollectionBuilderPanel()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -132,6 +133,8 @@ struct LibraryDashboardView: View {
                 selectionBadge
 
                 tagButton
+
+                collectionButton
 
                 transcodeButton
             }
@@ -324,6 +327,45 @@ struct LibraryDashboardView: View {
         guard !selectedItems.isEmpty else { return false }
         return selectedItems.allSatisfy { item in
             item.tags?.contains(where: { $0.id == tag.id }) ?? false
+        }
+    }
+
+    // MARK: - Collection Button
+
+    private var collectionButton: some View {
+        Button {
+            openCollectionPanel()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 11))
+                Text("Collection")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.mfSurface)
+            .foregroundColor(viewModel.selectedItems.isEmpty ? .mfTextMuted : .mfTextPrimary)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.mfGlassBorder))
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.selectedItems.isEmpty)
+    }
+
+    private func openCollectionPanel() {
+        collectionPanel.show(
+            mediaItemIds: Array(viewModel.selectedItems),
+            sections: viewModel.sections,
+            selectedLibraryId: viewModel.filterState.libraryId
+        ) {
+            appState.showToast(
+                "Collection updated",
+                icon: "checkmark.circle.fill",
+                style: .success,
+                duration: 5
+            )
+            viewModel.clearSelection()
         }
     }
 

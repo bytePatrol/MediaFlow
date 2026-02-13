@@ -68,20 +68,21 @@ struct SidebarNavButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: item.isSubItem ? 8 : 10) {
                 Image(systemName: item.icon)
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 20)
+                    .font(.system(size: item.isSubItem ? 12 : 14, weight: .medium))
+                    .frame(width: item.isSubItem ? 16 : 20)
                 Text(item.label)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                    .font(.system(size: item.isSubItem ? 12 : 13, weight: isSelected ? .semibold : .medium))
                 Spacer()
                 if item == .processing {
                     // Active jobs badge could go here
                 }
             }
             .foregroundColor(isSelected ? .mfPrimary : .mfTextSecondary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.leading, item.isSubItem ? 24 : 12)
+            .padding(.trailing, 12)
+            .padding(.vertical, item.isSubItem ? 6 : 8)
             .background(isSelected ? Color.mfPrimary.opacity(0.1) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }

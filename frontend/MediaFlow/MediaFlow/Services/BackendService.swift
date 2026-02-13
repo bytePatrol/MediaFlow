@@ -205,6 +205,41 @@ class BackendService {
         return try await client.post("/api/tags/remove", body: BulkTagRemoveRequest(mediaItemIds: mediaItemIds, tagIds: tagIds))
     }
 
+    // MARK: - Notifications
+    func getNotificationConfigs() async throws -> [NotificationConfigInfo] {
+        return try await client.get("/api/notifications/")
+    }
+
+    func createNotificationConfig(request: NotificationConfigCreateRequest) async throws -> NotificationConfigInfo {
+        return try await client.post("/api/notifications/", body: request)
+    }
+
+    func updateNotificationConfig(id: Int, request: NotificationConfigUpdateRequest) async throws -> NotificationConfigInfo {
+        return try await client.put("/api/notifications/\(id)", body: request)
+    }
+
+    func deleteNotificationConfig(id: Int) async throws {
+        try await client.delete("/api/notifications/\(id)")
+    }
+
+    func testNotification(id: Int) async throws -> TestNotificationResponse {
+        return try await client.post("/api/notifications/\(id)/test")
+    }
+
+    // MARK: - Collections
+    func getCollections(serverId: Int) async throws -> [CollectionInfo] {
+        let items = [URLQueryItem(name: "server_id", value: "\(serverId)")]
+        return try await client.get("/api/collections/", queryItems: items)
+    }
+
+    func createCollection(request: CollectionCreateRequest) async throws -> CollectionCreateResponse {
+        return try await client.post("/api/collections/", body: request)
+    }
+
+    func addToCollection(collectionId: String, request: CollectionAddRequest) async throws -> CollectionCreateResponse {
+        return try await client.post("/api/collections/\(collectionId)/add", body: request)
+    }
+
     // MARK: - Analytics
     func getAnalyticsOverview() async throws -> AnalyticsOverview {
         return try await client.get("/api/analytics/overview")
@@ -273,6 +308,7 @@ struct LibrarySection: Codable, Identifiable {
     let totalItems: Int
     let totalSize: Int
     let serverName: String
+    var serverId: Int?
 }
 
 struct PaginatedJobResponse: Codable {
@@ -336,4 +372,65 @@ struct PlexServerSSHRequest: Codable {
 struct SSHTestResponse: Codable {
     let status: String
     let message: String
+}
+
+// MARK: - Notification Models
+
+struct NotificationConfigInfo: Codable, Identifiable {
+    let id: Int
+    let type: String
+    let name: String
+    var configJson: [String: AnyCodable]?
+    var events: [String]?
+    var isEnabled: Bool
+}
+
+struct NotificationConfigCreateRequest: Codable {
+    let type: String
+    let name: String
+    let config: [String: AnyCodable]
+    let events: [String]
+    let isEnabled: Bool
+}
+
+struct NotificationConfigUpdateRequest: Codable {
+    var name: String?
+    var config: [String: AnyCodable]?
+    var events: [String]?
+    var isEnabled: Bool?
+}
+
+struct TestNotificationResponse: Codable {
+    let status: String
+    let message: String
+}
+
+// MARK: - Collection Models
+
+struct CollectionInfo: Codable, Identifiable {
+    let id: String
+    let title: String
+    let sectionKey: String
+    let sectionTitle: String
+    let itemCount: Int
+    var thumbUrl: String?
+}
+
+struct CollectionCreateRequest: Codable {
+    let serverId: Int
+    let libraryId: Int
+    let title: String
+    let mediaItemIds: [Int]
+}
+
+struct CollectionAddRequest: Codable {
+    let serverId: Int
+    let mediaItemIds: [Int]
+}
+
+struct CollectionCreateResponse: Codable {
+    let status: String
+    var collectionId: String?
+    let title: String
+    let itemsAdded: Int
 }

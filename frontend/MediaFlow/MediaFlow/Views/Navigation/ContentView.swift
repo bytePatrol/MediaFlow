@@ -15,6 +15,8 @@ struct ContentView: View {
                     switch appState.selectedNavItem {
                     case .library:
                         LibraryDashboardView()
+                    case .quickTranscode:
+                        QuickTranscodePageView()
                     case .processing:
                         ProcessingQueueView()
                     case .servers:

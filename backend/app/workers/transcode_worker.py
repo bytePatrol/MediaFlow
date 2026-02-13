@@ -628,6 +628,12 @@ class TranscodeWorker:
                 "output_size": job.output_size,
                 "duration": round(duration, 1),
             })
+
+            await self._send_notification("job.completed", {
+                "job_id": job.id,
+                "output_size": job.output_size,
+                "duration": round(duration, 1),
+            })
         else:
             # Download to local filesystem
             local_output = job.output_path
@@ -933,6 +939,12 @@ class TranscodeWorker:
             "duration": round(duration, 1),
         })
 
+        await self._send_notification("job.completed", {
+            "job_id": job.id,
+            "output_size": job.output_size,
+            "duration": round(duration, 1),
+        })
+
     # --- Cloud cost helper ---
 
     async def _record_cloud_job_cost(self, worker: WorkerServer, job, start_time: float,
@@ -1165,6 +1177,12 @@ class TranscodeWorker:
             "duration": round(duration, 1),
         })
 
+        await self._send_notification("job.completed", {
+            "job_id": job.id,
+            "output_size": job.output_size,
+            "duration": round(duration, 1),
+        })
+
     async def _replace_original(self, job: TranscodeJob, media: Optional[MediaItem],
                                 output_path: str, session) -> None:
         """Replace the original file with the transcoded output after verification."""
@@ -1236,12 +1254,27 @@ class TranscodeWorker:
             return os.path.splitext(plex_source)[0] + new_ext
         return plex_source
 
+    async def _send_notification(self, event: str, data: dict):
+        """Fire-and-forget notification dispatch in a separate session."""
+        try:
+            async with async_session_factory() as notify_session:
+                from app.services.notification_service import NotificationService
+                svc = NotificationService(notify_session)
+                await svc.send_notification(event, data)
+        except Exception as e:
+            logger.error(f"Notification send error: {e}")
+
     async def _handle_failure(self, job: TranscodeJob, log_lines: list, session) -> None:
         job.status = "failed"
         job.ffmpeg_log = "\n".join(log_lines[-100:]) if log_lines else ""
         await session.commit()
 
         await manager.broadcast("job.failed", {
+            "job_id": job.id,
+            "error": log_lines[-1] if log_lines else "Unknown error",
+        })
+
+        await self._send_notification("job.failed", {
             "job_id": job.id,
             "error": log_lines[-1] if log_lines else "Unknown error",
         })
