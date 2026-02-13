@@ -5,7 +5,10 @@ from typing import Optional, List
 
 from app.database import get_session
 from app.models.recommendation import Recommendation
-from app.schemas.recommendation import RecommendationResponse, RecommendationSummary, BatchQueueRequest
+from app.schemas.recommendation import (
+    RecommendationResponse, RecommendationSummary, BatchQueueRequest,
+    AnalysisRunResponse, SavingsAchievedResponse,
+)
 from app.services.recommendation_service import RecommendationService
 
 router = APIRouter()
@@ -27,11 +30,32 @@ async def get_recommendation_summary(session: AsyncSession = Depends(get_session
     return await service.get_summary()
 
 
+@router.get("/history")
+async def get_analysis_history(
+    limit: int = 20,
+    session: AsyncSession = Depends(get_session),
+):
+    service = RecommendationService(session)
+    return await service.get_analysis_history(limit=limit)
+
+
+@router.get("/savings", response_model=SavingsAchievedResponse)
+async def get_savings_achieved(session: AsyncSession = Depends(get_session)):
+    service = RecommendationService(session)
+    return await service.get_savings_achieved()
+
+
 @router.post("/generate")
 async def generate_recommendations(session: AsyncSession = Depends(get_session)):
     service = RecommendationService(session)
-    count = await service.run_full_analysis()
-    return {"status": "completed", "recommendations_generated": count}
+    result = await service.run_full_analysis(trigger="manual")
+    return {
+        "status": "completed",
+        "recommendations_generated": result["recommendations_generated"],
+        "run_id": result["run_id"],
+        "total_items_analyzed": result["total_items_analyzed"],
+        "total_estimated_savings": result["total_estimated_savings"],
+    }
 
 
 @router.post("/{rec_id}/dismiss")

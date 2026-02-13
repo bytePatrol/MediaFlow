@@ -4,6 +4,8 @@ import SwiftUI
 class RecommendationViewModel: ObservableObject {
     @Published var recommendations: [Recommendation] = []
     @Published var summary: RecommendationSummary?
+    @Published var analysisHistory: [AnalysisRunInfo] = []
+    @Published var savingsAchieved: SavingsAchievedInfo?
     @Published var isLoading: Bool = false
     @Published var isGenerating: Bool = false
     @Published var selectedType: String? = nil
@@ -17,8 +19,15 @@ class RecommendationViewModel: ObservableObject {
     func loadRecommendations() async {
         isLoading = true
         do {
-            recommendations = try await service.getRecommendations(type: selectedType)
-            summary = try await service.getRecommendationSummary()
+            async let recsReq = service.getRecommendations(type: selectedType)
+            async let summaryReq = service.getRecommendationSummary()
+            async let historyReq = service.getAnalysisHistory(limit: 10)
+            async let savingsReq = service.getSavingsAchieved()
+            let (recs, sum, hist, sav) = try await (recsReq, summaryReq, historyReq, savingsReq)
+            recommendations = recs
+            summary = sum
+            analysisHistory = hist
+            savingsAchieved = sav
         } catch {
             print("Failed to load recommendations: \(error)")
         }

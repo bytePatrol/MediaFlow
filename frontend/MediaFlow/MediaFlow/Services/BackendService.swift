@@ -272,6 +272,29 @@ class BackendService {
         struct BatchQueueRequest: Codable { let recommendationIds: [Int]; let presetId: Int? }
         return try await client.post("/api/recommendations/batch-queue", body: BatchQueueRequest(recommendationIds: ids, presetId: presetId))
     }
+
+    func getAnalysisHistory(limit: Int = 20) async throws -> [AnalysisRunInfo] {
+        let items = [URLQueryItem(name: "limit", value: "\(limit)")]
+        return try await client.get("/api/recommendations/history", queryItems: items)
+    }
+
+    func getSavingsAchieved() async throws -> SavingsAchievedInfo {
+        return try await client.get("/api/recommendations/savings")
+    }
+
+    // MARK: - Intelligence Settings
+    func getIntelSetting(key: String) async throws -> AppSettingValue {
+        return try await client.get("/api/settings/\(key)")
+    }
+
+    func setIntelSetting(key: String, value: String) async throws -> AppSettingValue {
+        return try await client.put("/api/settings/\(key)", body: ["value": value])
+    }
+}
+
+struct AppSettingValue: Codable {
+    let key: String
+    var value: String?
 }
 
 struct BatchQueueResponse: Codable {

@@ -8,6 +8,7 @@ struct SettingsView: View {
     enum SettingsTab: String, CaseIterable {
         case general = "General"
         case storage = "Storage"
+        case intelligence = "Intelligence"
         case cloudGpu = "Cloud GPU"
         case notifications = "Notifications"
         case api = "API"
@@ -55,6 +56,8 @@ struct SettingsView: View {
                     GeneralSettingsView()
                 case .storage:
                     StorageSettingsView()
+                case .intelligence:
+                    IntelligenceSettingsView()
                 case .cloudGpu:
                     CloudGPUSettingsView()
                 case .notifications:
@@ -1349,6 +1352,243 @@ struct NotificationSettingsView: View {
         } catch {
             errorMessage = "Delete failed: \(error.localizedDescription)"
         }
+    }
+}
+
+// MARK: - Intelligence Settings
+
+struct IntelligenceSettingsView: View {
+    @State private var autoAnalyze: Bool = true
+    @State private var overkillMinSizeGB: Double = 30
+    @State private var overkillMaxPlays: Double = 2
+    @State private var storageOptMinSizeGB: Double = 20
+    @State private var storageOptTopN: Double = 20
+    @State private var audioChannelsThreshold: Double = 6
+    @State private var qualityGapPct: Double = 40
+    @State private var hdrMaxPlays: Double = 3
+    @State private var batchMinGroupSize: Double = 5
+    @State private var isLoading: Bool = true
+    @State private var isSaving: Bool = false
+    @State private var statusMessage: String = ""
+    @State private var statusIsError: Bool = false
+
+    private let service = BackendService()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            // Auto-Analyze
+            VStack(alignment: .leading, spacing: 12) {
+                Text("AUTO-ANALYZE")
+                    .mfSectionHeader()
+
+                Toggle(isOn: $autoAnalyze) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Run analysis automatically after library sync")
+                            .font(.mfBody)
+                            .foregroundColor(.mfTextPrimary)
+                        Text("Automatically generates recommendations when new media is synced from Plex.")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextMuted)
+                    }
+                }
+                .toggleStyle(.switch)
+                .tint(.mfPrimary)
+            }
+            .padding(20)
+            .cardStyle()
+
+            // Thresholds
+            VStack(alignment: .leading, spacing: 16) {
+                Text("ANALYSIS THRESHOLDS")
+                    .mfSectionHeader()
+
+                Text("Control what triggers recommendations. Higher thresholds = fewer recommendations.")
+                    .font(.mfBody)
+                    .foregroundColor(.mfTextSecondary)
+
+                thresholdSlider(
+                    label: "Quality Overkill Min Size",
+                    value: $overkillMinSizeGB,
+                    range: 5...100, step: 5,
+                    suffix: "GB",
+                    description: "Minimum file size to flag 4K HDR content as overkill"
+                )
+
+                thresholdSlider(
+                    label: "Quality Overkill Max Plays",
+                    value: $overkillMaxPlays,
+                    range: 0...20, step: 1,
+                    suffix: "plays",
+                    description: "Maximum play count to consider 4K HDR content underused"
+                )
+
+                thresholdSlider(
+                    label: "Storage Optimization Min Size",
+                    value: $storageOptMinSizeGB,
+                    range: 5...100, step: 5,
+                    suffix: "GB",
+                    description: "Minimum file size for storage optimization recommendations"
+                )
+
+                thresholdSlider(
+                    label: "Storage Top N",
+                    value: $storageOptTopN,
+                    range: 5...100, step: 5,
+                    suffix: "items",
+                    description: "Number of largest files to analyze for storage optimization"
+                )
+
+                thresholdSlider(
+                    label: "Audio Channels Threshold",
+                    value: $audioChannelsThreshold,
+                    range: 2...8, step: 1,
+                    suffix: "ch",
+                    description: "Minimum audio channels to flag for audio optimization"
+                )
+
+                thresholdSlider(
+                    label: "Quality Gap Bitrate %",
+                    value: $qualityGapPct,
+                    range: 10...80, step: 5,
+                    suffix: "%",
+                    description: "Flag items below this percentage of average library bitrate"
+                )
+
+                thresholdSlider(
+                    label: "HDR Max Plays",
+                    value: $hdrMaxPlays,
+                    range: 0...20, step: 1,
+                    suffix: "plays",
+                    description: "Maximum play count to flag HDR content for SDR conversion"
+                )
+
+                thresholdSlider(
+                    label: "Batch Min Group Size",
+                    value: $batchMinGroupSize,
+                    range: 3...50, step: 1,
+                    suffix: "files",
+                    description: "Minimum group size for batch transcode recommendations"
+                )
+            }
+            .padding(20)
+            .cardStyle()
+
+            // Save button
+            HStack {
+                Button {
+                    Task { await saveSettings() }
+                } label: {
+                    HStack(spacing: 4) {
+                        if isSaving {
+                            ProgressView().scaleEffect(0.7).frame(width: 14, height: 14)
+                        }
+                        Text(isSaving ? "Saving..." : "Save Intelligence Settings")
+                    }
+                    .primaryButton()
+                }
+                .buttonStyle(.plain)
+                .disabled(isSaving)
+
+                if !statusMessage.isEmpty {
+                    Text(statusMessage)
+                        .font(.mfCaption)
+                        .foregroundColor(statusIsError ? .mfError : .mfSuccess)
+                }
+            }
+
+            Spacer()
+        }
+        .task { await loadSettings() }
+    }
+
+    @ViewBuilder
+    private func thresholdSlider(label: String, value: Binding<Double>,
+                                  range: ClosedRange<Double>, step: Double,
+                                  suffix: String, description: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label)
+                    .font(.mfCaption)
+                    .foregroundColor(.mfTextMuted)
+                Spacer()
+                Text("\(Int(value.wrappedValue)) \(suffix)")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.mfPrimary)
+            }
+            .frame(maxWidth: 450)
+            Slider(value: value, in: range, step: step)
+                .frame(maxWidth: 450)
+                .tint(.mfPrimary)
+            Text(description)
+                .font(.system(size: 10))
+                .foregroundColor(.mfTextMuted)
+        }
+    }
+
+    private func loadSettings() async {
+        isLoading = true
+        do {
+            let keys: [(String, WritableKeyPath<IntelligenceSettingsView, Double>)] = [
+                ("intel.overkill_min_size_gb", \.overkillMinSizeGB),
+                ("intel.overkill_max_plays", \.overkillMaxPlays),
+                ("intel.storage_opt_min_size_gb", \.storageOptMinSizeGB),
+                ("intel.storage_opt_top_n", \.storageOptTopN),
+                ("intel.audio_channels_threshold", \.audioChannelsThreshold),
+                ("intel.quality_gap_bitrate_pct", \.qualityGapPct),
+                ("intel.hdr_max_plays", \.hdrMaxPlays),
+                ("intel.batch_min_group_size", \.batchMinGroupSize),
+            ]
+
+            for (key, _) in keys {
+                let result = try await service.getIntelSetting(key: key)
+                if let val = result.value, let num = Double(val) {
+                    switch key {
+                    case "intel.overkill_min_size_gb": overkillMinSizeGB = num
+                    case "intel.overkill_max_plays": overkillMaxPlays = num
+                    case "intel.storage_opt_min_size_gb": storageOptMinSizeGB = num
+                    case "intel.storage_opt_top_n": storageOptTopN = num
+                    case "intel.audio_channels_threshold": audioChannelsThreshold = num
+                    case "intel.quality_gap_bitrate_pct": qualityGapPct = num
+                    case "intel.hdr_max_plays": hdrMaxPlays = num
+                    case "intel.batch_min_group_size": batchMinGroupSize = num
+                    default: break
+                    }
+                }
+            }
+
+            let autoResult = try await service.getIntelSetting(key: "intel.auto_analyze_on_sync")
+            autoAnalyze = autoResult.value != "false"
+        } catch {
+            // Use defaults on failure
+        }
+        isLoading = false
+    }
+
+    private func saveSettings() async {
+        isSaving = true
+        statusMessage = ""
+        do {
+            let settings: [(String, String)] = [
+                ("intel.auto_analyze_on_sync", autoAnalyze ? "true" : "false"),
+                ("intel.overkill_min_size_gb", "\(Int(overkillMinSizeGB))"),
+                ("intel.overkill_max_plays", "\(Int(overkillMaxPlays))"),
+                ("intel.storage_opt_min_size_gb", "\(Int(storageOptMinSizeGB))"),
+                ("intel.storage_opt_top_n", "\(Int(storageOptTopN))"),
+                ("intel.audio_channels_threshold", "\(Int(audioChannelsThreshold))"),
+                ("intel.quality_gap_bitrate_pct", "\(Int(qualityGapPct))"),
+                ("intel.hdr_max_plays", "\(Int(hdrMaxPlays))"),
+                ("intel.batch_min_group_size", "\(Int(batchMinGroupSize))"),
+            ]
+            for (key, value) in settings {
+                _ = try await service.setIntelSetting(key: key, value: value)
+            }
+            statusMessage = "Settings saved"
+            statusIsError = false
+        } catch {
+            statusMessage = "Save failed: \(error.localizedDescription)"
+            statusIsError = true
+        }
+        isSaving = false
     }
 }
 

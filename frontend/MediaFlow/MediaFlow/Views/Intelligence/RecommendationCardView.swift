@@ -13,6 +13,20 @@ struct RecommendationCardView: View {
         }
     }
 
+    private var priorityColor: Color {
+        guard let score = recommendation.priorityScore else { return .mfTextMuted }
+        if score >= 70 { return .mfSuccess }
+        if score >= 40 { return .mfWarning }
+        return .orange
+    }
+
+    private var confidenceColor: Color {
+        guard let c = recommendation.confidence else { return .mfTextMuted }
+        if c >= 0.8 { return .mfSuccess }
+        if c >= 0.4 { return .mfInfo }
+        return .mfTextMuted
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             // Icon
@@ -31,6 +45,18 @@ struct RecommendationCardView: View {
                         .lineLimit(1)
 
                     Spacer()
+
+                    // Priority score badge
+                    if let score = recommendation.priorityScore {
+                        Text("\(Int(score))")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(priorityColor)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(priorityColor.opacity(0.12))
+                            .clipShape(Capsule())
+                            .help("Priority score: \(Int(score))/100")
+                    }
 
                     if let savings = recommendation.estimatedSavings, savings > 0 {
                         HStack(spacing: 4) {
@@ -62,6 +88,21 @@ struct RecommendationCardView: View {
                         .padding(.vertical, 3)
                         .background(Color.mfSurface)
                         .clipShape(Capsule())
+
+                    // Confidence indicator
+                    if recommendation.confidence != nil {
+                        HStack(spacing: 3) {
+                            Circle()
+                                .fill(confidenceColor)
+                                .frame(width: 5, height: 5)
+                            Text(recommendation.confidenceLabel)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.mfTextMuted)
+                        }
+                        .help(recommendation.confidence ?? 0 >= 0.8
+                              ? "Learned from previous transcodes"
+                              : "Estimated from codec/bitrate analysis")
+                    }
 
                     Spacer()
 

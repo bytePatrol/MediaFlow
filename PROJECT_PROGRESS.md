@@ -48,8 +48,8 @@ chmod +x run.sh
 |------|-------|
 | Backend Python files | ~70 |
 | Frontend Swift files | ~58 |
-| API endpoints | 65 (57 original + 6 cloud + 2 manual transcode) |
-| Database models (tables) | 15 |
+| API endpoints | 67 (57 original + 6 cloud + 2 manual transcode + 2 intelligence) |
+| Database models (tables) | 16 |
 | Backend services | 13 |
 | Background workers | 5 (transcode, health, cloud_monitor, sync, scheduler) |
 | Frontend views | 27 |
@@ -81,7 +81,7 @@ chmod +x run.sh
 - [x] Dry-run simulation mode
 - [x] Preset system (built-in + custom CRUD)
 
-### Phase 3: Intelligence — COMPLETE
+### Phase 3: Intelligence — COMPLETE (major upgrade 2026-02-12)
 - [x] Codec Modernization analyzer
 - [x] Quality Overkill detection
 - [x] Duplicate Detection
@@ -90,6 +90,18 @@ chmod +x run.sh
 - [x] Recommendation summary dashboard
 - [x] One-click batch queue from recommendations
 - [x] Dismiss/action tracking
+- [x] **Learn from transcode results** — actual compression ratios from job_logs (min 3 samples)
+- [x] **Smart priority scoring** — 0-100 score (file size 40%, codec age 25%, confidence 20%, play count 15%)
+- [x] **Auto-analyze on library sync** — runs after both OAuth and manual sync
+- [x] **Configurable thresholds** — 9 `intel.*` settings with UI sliders in Settings → Intelligence
+- [x] **Bitrate-aware savings estimation** — learned → default → bitrate → fallback chain
+- [x] **Audio optimization analyzer** — flags lossless high-channel audio (TrueHD, DTS-HD MA, etc.)
+- [x] **Container modernize analyzer** — flags .avi/.wmv/.mpg for fast remux to .mkv
+- [x] **HDR to SDR analyzer** — flags low-usage HDR content for tone-mapped SDR conversion
+- [x] **Batch similar analyzer** — groups 5+ files by codec/resolution for batch transcode
+- [x] **Analysis run tracking** — `analysis_runs` table with history endpoint and expandable UI
+- [x] **Priority badges** — color-coded score on each recommendation card
+- [x] **Confidence indicators** — high/medium/low dot with tooltip (learned vs estimated)
 
 ### Phase 4: Distributed System — COMPLETE
 - [x] Worker server CRUD (local + remote via SSH)
@@ -150,12 +162,12 @@ Frontend (SwiftUI macOS 14+)
   └── 8 ViewModels → 27 Views
 
 Backend (Python FastAPI, port 9876)
-  └── 15 API route files → 63 endpoints
+  └── 15 API route files → 67 endpoints
   └── 13 services (business logic)
   └── 5 background workers (transcode, health, cloud_monitor, sync, scheduler)
   └── 7 utility modules (SSH, FFmpeg, FFprobe, paths, security)
   └── SQLite with WAL mode, async via aiosqlite
-  └── 15 ORM models
+  └── 16 ORM models
 ```
 
 ---
@@ -171,7 +183,7 @@ Backend (Python FastAPI, port 9876)
 | `/api/presets` | presets.py | 5 | Encoding preset CRUD |
 | `/api/servers` | servers.py | 12 | Workers, provision, benchmark |
 | `/api/analytics` | analytics.py | 6 | Stats, charts, savings |
-| `/api/recommendations` | recommendations.py | 5 | Analysis, batch queue |
+| `/api/recommendations` | recommendations.py | 7 | Analysis, batch queue, **history, savings** |
 | `/api/settings` | settings.py | 3 | App configuration |
 | `/api/notifications` | notifications.py | 3 | Notification config |
 | `/api/cloud` | cloud.py | 6 | **Cloud GPU deploy/teardown, plans, costs, settings** |
@@ -190,13 +202,13 @@ Backend (Python FastAPI, port 9876)
 | Servers | ServerManagementView, ServerCardView, AddServerSheet, **CloudDeployPanel**, ServerComparisonView | ServerManagementViewModel |
 | Analytics | AnalyticsDashboardView, StatisticsCardView | AnalyticsViewModel |
 | Intelligence | RecommendationsView, RecommendationCardView | RecommendationViewModel |
-| Settings | SettingsView (**incl. Cloud GPU tab, CloudAPIKeyPanel**) | PlexAuthViewModel |
+| Settings | SettingsView (**incl. Intelligence, Cloud GPU tab, CloudAPIKeyPanel**) | PlexAuthViewModel |
 | Logs | LogsView | LogsViewModel |
 | Components | EmptyStateView, GlassPanel, LoadingSkeleton, QualityBadge, StatusIndicator | — |
 
 ---
 
-## Database Models (15 tables)
+## Database Models (16 tables)
 
 | Model | Table | Key Fields |
 |-------|-------|------------|
@@ -207,7 +219,8 @@ Backend (Python FastAPI, port 9876)
 | TranscodePreset | transcode_presets | name, codec, quality, hw_accel, is_builtin |
 | WorkerServer | worker_servers | hostname, SSH creds, capabilities, status, **cloud_* fields** |
 | JobLog | job_logs | size_before, size_after, duration, avg_fps, cost |
-| Recommendation | recommendations | type, severity, estimated_savings, dismissed, actioned |
+| Recommendation | recommendations | type, severity, estimated_savings, dismissed, actioned, **priority_score, confidence, analysis_run_id** |
+| **AnalysisRun** | **analysis_runs** | **started_at, completed_at, total_items_analyzed, recommendations_generated, total_estimated_savings, trigger** |
 | ServerBenchmark | server_benchmarks | upload_mbps, download_mbps, latency_ms |
 | **CloudCostRecord** | **cloud_cost_records** | **worker_server_id, job_id, hourly_rate, cost_usd, record_type** |
 | CustomTag | custom_tags | name, color, category |
@@ -462,6 +475,38 @@ class ProbeResponse:  # file_path, file_size, duration_seconds, video_codec, res
 class ManualTranscodeRequest:  # file_path, file_size, config, preset_id, priority, preferred_worker_id
 ```
 
+### Intelligence System — 8 Improvements (2026-02-12)
+
+Major overhaul of the Recommendations/Intelligence system with all 8 planned improvements:
+
+1. **Learn from Transcode Results** — `_get_learned_ratios()` queries `job_logs` for actual compression ratios (min 3 samples per codec pair). Replaces hardcoded 50% guesses.
+2. **Smart Priority Scoring** — `_score_recommendation()` scores 0-100: file size (40%), codec age (25%), confidence (20%), play count (15%).
+3. **Auto-Analyze on Library Sync** — Runs automatically after both OAuth sync and manual sync when `intel.auto_analyze_on_sync=true` (default).
+4. **Configurable Thresholds** — 9 `intel.*` keys in `app_settings` with UI sliders in Settings → Intelligence tab.
+5. **Bitrate-Aware Savings Estimation** — Chain: learned ratio → default ratio → bitrate-based → 40% fallback. Returns `(savings_bytes, confidence)`.
+6. **Audio Analysis** — Flags lossless high-channel audio (TrueHD, DTS-HD MA, FLAC, PCM) with 6+ channels for downmix savings.
+7. **New Recommendation Types** — `container_modernize` (.avi→.mkv remux), `hdr_to_sdr` (tone-map low-usage HDR), `batch_similar` (groups of 5+ same-codec files).
+8. **Analysis Run Tracking** — `analysis_runs` table, `GET /history` and `GET /savings` endpoints, expandable UI with run-by-run stats.
+
+#### New API Endpoints
+- `GET /api/recommendations/history` — List of analysis runs with timing and stats
+- `GET /api/recommendations/savings` — Actual savings achieved from completed transcode jobs
+
+#### New AppSettings Keys
+| Key | Default | Description |
+|-----|---------|-------------|
+| `intel.auto_analyze_on_sync` | true | Run analysis automatically after library sync |
+| `intel.overkill_min_size_gb` | 30 | Min file size (GB) to flag 4K HDR as overkill |
+| `intel.overkill_max_plays` | 2 | Max plays to consider 4K HDR underused |
+| `intel.storage_opt_min_size_gb` | 20 | Min file size (GB) for storage optimization |
+| `intel.storage_opt_top_n` | 20 | Number of largest files to analyze |
+| `intel.audio_channels_threshold` | 6 | Min audio channels to flag for optimization |
+| `intel.quality_gap_bitrate_pct` | 40 | % of avg bitrate to flag as low quality |
+| `intel.hdr_max_plays` | 3 | Max plays to flag HDR for SDR conversion |
+| `intel.batch_min_group_size` | 5 | Min group size for batch transcode recs |
+
+---
+
 ### Current Path Mappings (stored in app_settings)
 - `/share/ZFS18_DATA/Media` → `/Volumes/media` (TrueNAS SMB mount)
 
@@ -529,28 +574,24 @@ asyncssh>=2.14.0
 
 ## What to Work On Next
 
-### Completed (2026-02-11)
-- ~~Test full cloud transcode cycle~~ — **DONE.** End-to-end working: Deploy Vultr GPU → upload from NAS → hevc_nvenc at 561 FPS → download → upload back to NAS → replace original.
-- ~~Cloud GPU provisioning~~ — **DONE.** Auto-installs ffmpeg, tests NVENC, falls back to Jellyfin ffmpeg for vGPU SDK compatibility.
-- ~~NVENC auto-upgrade~~ — **DONE.** CPU codec → GPU codec when worker has NVENC capability.
-
-### High Priority
-1. ~~**Path mappings UI**~~ — **DONE** (2026-02-12). Settings → Storage tab with source/local path mapping CRUD.
-2. ~~**Bulk transcode from library**~~ — **DONE** (2026-02-12, commit `58dfd69`). Cross-page select-all-filtered support.
-3. ~~**Cloud worker auto-deploy on queue**~~ — **DONE** (2026-02-12). See below.
-
-### Completed (2026-02-12 session 2)
-- ~~**Manual Transcode / Quick Transcode**~~ — **DONE.** Local file transcode with file picker, probe, preset system, V2 output naming. Works with local and remote workers.
+### Previously Completed
+- ~~Test full cloud transcode cycle~~ — **DONE** (2026-02-11). End-to-end working at 561 FPS with NVENC.
+- ~~Path mappings UI~~ — **DONE** (2026-02-12).
+- ~~Bulk transcode from library~~ — **DONE** (2026-02-12).
+- ~~Cloud worker auto-deploy~~ — **DONE** (2026-02-12).
+- ~~Manual Transcode / Quick Transcode~~ — **DONE** (2026-02-12).
+- ~~Intelligence system improvements (8x)~~ — **DONE** (2026-02-12). Learned ratios, priority scoring, auto-analyze, configurable thresholds, audio/container/HDR/batch analyzers, analysis run tracking.
 
 ### Medium Priority
-4. **Custom tagging system frontend** — Backend model (CustomTag, MediaTag) exists. Need UI for creating tags, applying to media items, filtering by tags.
-5. **Email notification UI** — Backend NotificationService exists. Need Settings panel for configuring email (SMTP) and enabling per-event notifications.
-6. **Batch metadata editing UI** — Need modal for bulk-updating titles, genres, collections on selected media items.
-7. **Collection builder UI** — Auto-create Plex collections from filter criteria (e.g., "All Dolby Atmos Movies").
-8. **SettingsView deprecation fix** — Update onChange(of:perform:) to new syntax.
+1. **Custom tagging system frontend** — Backend model (CustomTag, MediaTag) exists. Need UI for creating tags, applying to media items, filtering by tags.
+2. **Email notification UI** — Backend NotificationService exists. Need Settings panel for configuring email (SMTP) and enabling per-event notifications.
+3. **Batch metadata editing UI** — Need modal for bulk-updating titles, genres, collections on selected media items.
+4. **Collection builder UI** — Auto-create Plex collections from filter criteria (e.g., "All Dolby Atmos Movies").
+5. **SettingsView deprecation fix** — Update onChange(of:perform:) to new syntax.
 
 ### Low Priority
-9. **PDF health reports** — Export library analysis as PDF.
-10. **Scheduling UI** — Configure transcode processing hours (e.g., overnight only).
-11. **App icon** — Currently using default Xcode icon.
-12. **macOS push notifications** — System notification center integration.
+6. **PDF health reports** — Export library analysis as PDF.
+7. **Scheduling UI** — Configure transcode processing hours (e.g., overnight only).
+8. **App icon** — Currently using default Xcode icon.
+9. **macOS push notifications** — System notification center integration.
+10. **Intelligence enhancements** — Per-library analysis, schedule-based auto-analysis, recommendation grouping in UI.

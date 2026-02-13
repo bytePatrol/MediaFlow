@@ -606,6 +606,7 @@ class TranscodeWorker:
             await session.commit()
 
             duration = time.time() - start_time
+            _config = job.config_json or {}
             log_entry = JobLog(
                 job_id=job.id,
                 worker_server_id=job.worker_server_id,
@@ -613,6 +614,8 @@ class TranscodeWorker:
                 title=media.title if media else None,
                 source_codec=media.video_codec if media else None,
                 source_resolution=media.resolution_tier if media else None,
+                target_codec=_config.get("video_codec"),
+                target_resolution=_config.get("target_resolution"),
                 source_size=job.source_size,
                 target_size=job.output_size,
                 size_reduction=round(1 - (job.output_size or 0) / max(job.source_size or 1, 1), 3),
@@ -916,6 +919,7 @@ class TranscodeWorker:
         await session.commit()
 
         duration = time.time() - start_time
+        _config = job.config_json or {}
         log_entry = JobLog(
             job_id=job.id,
             worker_server_id=job.worker_server_id,
@@ -923,6 +927,8 @@ class TranscodeWorker:
             title=media.title if media else None,
             source_codec=media.video_codec if media else None,
             source_resolution=media.resolution_tier if media else None,
+            target_codec=_config.get("video_codec"),
+            target_resolution=_config.get("target_resolution"),
             source_size=job.source_size,
             target_size=job.output_size,
             size_reduction=round(1 - (job.output_size or 0) / max(job.source_size or 1, 1), 3),
@@ -1154,6 +1160,7 @@ class TranscodeWorker:
         await session.commit()
 
         duration = time.time() - start_time
+        _config = job.config_json or {}
         log_entry = JobLog(
             job_id=job.id,
             worker_server_id=job.worker_server_id,
@@ -1161,6 +1168,8 @@ class TranscodeWorker:
             title=media.title if media else None,
             source_codec=media.video_codec if media else None,
             source_resolution=media.resolution_tier if media else None,
+            target_codec=_config.get("video_codec"),
+            target_resolution=_config.get("target_resolution"),
             source_size=job.source_size,
             target_size=job.output_size,
             size_reduction=round(1 - (job.output_size or 0) / max(job.source_size or 1, 1), 3),

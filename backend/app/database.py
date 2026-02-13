@@ -67,6 +67,10 @@ async def _run_migrations(conn):
         ("worker_servers", "cloud_idle_minutes", "INTEGER DEFAULT 30"),
         ("worker_servers", "cloud_status", "VARCHAR(20)"),
         ("transcode_jobs", "status_detail", "VARCHAR(500)"),
+        # Intelligence system improvements
+        ("recommendations", "priority_score", "FLOAT"),
+        ("recommendations", "confidence", "FLOAT"),
+        ("recommendations", "analysis_run_id", "INTEGER REFERENCES analysis_runs(id)"),
     ]
     for table, column, col_type in migrations:
         try:

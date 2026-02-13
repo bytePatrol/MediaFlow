@@ -90,6 +90,11 @@ async def sync_plex_library(server_id: int, session: AsyncSession = Depends(get_
 
     service = PlexService(session)
     sync_result = await service.sync_library(server)
+
+    # Auto-run intelligence analysis after manual sync
+    import asyncio
+    asyncio.create_task(_auto_analyze_after_sync_bg())
+
     return sync_result
 
 
@@ -208,8 +213,43 @@ async def _background_sync(server_id: int):
                 service = PlexService(session)
                 await service.sync_library(server)
                 logger.info(f"Background sync completed for {server.name}")
+
+                # Auto-run intelligence analysis if enabled
+                await _auto_analyze_after_sync(session)
     except Exception as e:
         logger.warning(f"Background sync failed for server {server_id}: {e}")
+
+
+async def _auto_analyze_after_sync(session):
+    """Run intelligence analysis automatically after sync if setting is enabled."""
+    try:
+        from app.models.app_settings import AppSetting
+        result = await session.execute(
+            select(AppSetting).where(AppSetting.key == "intel.auto_analyze_on_sync")
+        )
+        setting = result.scalar_one_or_none()
+        # Default to true if setting doesn't exist
+        if setting and setting.value == "false":
+            return
+
+        from app.services.recommendation_service import RecommendationService
+        rec_service = RecommendationService(session)
+        run_result = await rec_service.run_full_analysis(trigger="auto")
+        logger.info(
+            f"Auto-analysis completed: {run_result['recommendations_generated']} recommendations generated"
+        )
+    except Exception as e:
+        logger.warning(f"Auto-analysis after sync failed: {e}")
+
+
+async def _auto_analyze_after_sync_bg():
+    """Run auto-analysis in a background task with its own session."""
+    from app.database import async_session_factory
+    try:
+        async with async_session_factory() as session:
+            await _auto_analyze_after_sync(session)
+    except Exception as e:
+        logger.warning(f"Background auto-analysis failed: {e}")
 
 
 @router.post("/auth/discover", response_model=PlexOAuthServersResponse)
