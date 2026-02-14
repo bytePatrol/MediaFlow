@@ -3,11 +3,19 @@ import Combine
 
 @MainActor
 class WebSocketService: ObservableObject {
+    static var defaultURL: String {
+        BackendService.defaultBaseURL
+            .replacingOccurrences(of: "http://", with: "ws://")
+            .replacingOccurrences(of: "https://", with: "wss://")
+            + "/ws"
+    }
+
     @Published var isConnected: Bool = false
     private var client: WebSocketClient?
 
-    func connect(url: String = "ws://localhost:9876/ws") {
-        client = WebSocketClient(urlString: url)
+    func connect(url: String? = nil) {
+        let wsURL = url ?? Self.defaultURL
+        client = WebSocketClient(urlString: wsURL)
         client?.connect()
         isConnected = true
         setupNotificationSubscriptions()

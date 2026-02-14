@@ -65,7 +65,7 @@ struct TranscodeJobCardView: View {
                 // Thumbnail
                 ZStack(alignment: .bottomTrailing) {
                     if let mediaItemId = job.mediaItemId {
-                        AsyncImage(url: URL(string: "http://localhost:9876/api/library/thumb/\(mediaItemId)")) { phase in
+                        AsyncImage(url: URL(string: "\(BackendService.defaultBaseURL)/api/library/thumb/\(mediaItemId)")) { phase in
                             switch phase {
                             case .success(let image):
                                 image

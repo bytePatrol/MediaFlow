@@ -25,7 +25,7 @@ struct ToastItem: Identifiable {
 class AppState: ObservableObject {
     @Published var isConnected: Bool = false
     @Published var selectedNavItem: NavigationItem = .library
-    @Published var backendURL: String = "http://localhost:9876"
+    @Published var backendURL: String = BackendService.defaultBaseURL
     @Published var activeJobCount: Int = 0
     @Published var aggregateFPS: Double = 0.0
     @Published var isBackendOnline: Bool = false

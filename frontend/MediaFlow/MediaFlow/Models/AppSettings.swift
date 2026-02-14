@@ -1,7 +1,7 @@
 import Foundation
 
 struct AppSettings: Codable {
-    var backendUrl: String = "http://localhost:9876"
+    var backendUrl: String = BackendService.defaultBaseURL
     var plexUrl: String = ""
     var plexToken: String = ""
     var defaultPresetId: Int?

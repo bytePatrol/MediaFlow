@@ -34,7 +34,7 @@ class TranscodeViewModel: ObservableObject {
     @Published var cloudApiKeyConfigured: Bool = false
     @Published var isDeployingCloud: Bool = false
 
-    private let service: BackendService
+    private var service: BackendService
     private var wsService: WebSocketService?
 
     enum JobFilter: String, CaseIterable {
@@ -93,9 +93,13 @@ class TranscodeViewModel: ObservableObject {
         self.service = service
     }
 
-    func connectWebSocket() {
+    func updateBackendURL(_ url: String) {
+        service = BackendService(baseURL: url)
+    }
+
+    func connectWebSocket(url: String? = nil) {
         let ws = WebSocketService()
-        ws.connect()
+        ws.connect(url: url ?? WebSocketService.defaultURL)
         setupWebSocket(ws)
     }
 

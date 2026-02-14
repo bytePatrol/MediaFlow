@@ -19,13 +19,16 @@ enum APIError: Error, LocalizedError {
 }
 
 class APIClient {
+    static var defaultBaseURL: String = "http://localhost:9876"
+
     let baseURL: String
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(baseURL: String = "http://localhost:9876") {
-        self.baseURL = baseURL
+    init(baseURL: String? = nil) {
+        let resolvedURL = baseURL ?? Self.defaultBaseURL
+        self.baseURL = resolvedURL
         self.session = URLSession.shared
 
         self.decoder = JSONDecoder()

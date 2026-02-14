@@ -84,7 +84,7 @@ struct GeneralSettingsView: View {
     @StateObject private var plexAuth = PlexAuthViewModel()
     @State private var plexURL: String = ""
     @State private var plexToken: String = ""
-    @State private var backendURL: String = "http://localhost:9876"
+    @State private var backendURL: String = BackendService.defaultBaseURL
     @State private var isConnecting: Bool = false
     @State private var connectionStatus: String = ""
     @State private var showManualConnection: Bool = false

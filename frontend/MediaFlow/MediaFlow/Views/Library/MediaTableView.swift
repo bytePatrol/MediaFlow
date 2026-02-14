@@ -239,7 +239,7 @@ struct MediaGridCard: View {
         VStack(alignment: .leading, spacing: 8) {
             // Thumbnail
             ZStack(alignment: .topTrailing) {
-                AsyncImage(url: URL(string: "http://localhost:9876/api/library/thumb/\(item.id)")) { phase in
+                AsyncImage(url: URL(string: "\(BackendService.defaultBaseURL)/api/library/thumb/\(item.id)")) { phase in
                     switch phase {
                     case .success(let image):
                         image

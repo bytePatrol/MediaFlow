@@ -1,10 +1,12 @@
 import Foundation
 
 class BackendService {
+    static var defaultBaseURL: String = "http://localhost:9876"
+
     let client: APIClient
 
-    init(baseURL: String = "http://localhost:9876") {
-        self.client = APIClient(baseURL: baseURL)
+    init(baseURL: String? = nil) {
+        self.client = APIClient(baseURL: baseURL ?? Self.defaultBaseURL)
     }
 
     // MARK: - Plex OAuth

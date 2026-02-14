@@ -80,8 +80,12 @@ async def get_diagnostics():
                 cache_size += os.path.getsize(path)
                 cache_files += 1
 
-    # DB size
-    db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "mediaflow.db")
+    # DB size — derive path from DATABASE_URL setting
+    from app.config import settings as _settings
+    _db_url = _settings.DATABASE_URL
+    # Parse "sqlite+aiosqlite:///./mediaflow.db" or absolute paths
+    _db_suffix = _db_url.split("///", 1)[-1] if "///" in _db_url else "mediaflow.db"
+    db_path = os.path.abspath(_db_suffix)
     db_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
 
     return {

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     FFPROBE_PATH: str = _find_binary("ffprobe", "/usr/local/bin/ffprobe")
     LOG_LEVEL: str = "INFO"
     API_PORT: int = 9876
-    API_HOST: str = "0.0.0.0"
+    API_HOST: str = "127.0.0.1"
     SECRET_KEY: str = "change-me-to-a-random-secret-key"
     CORS_ORIGINS: str = '["http://localhost:9876"]'
     PLEX_CLIENT_IDENTIFIER: str = "mediaflow-app-001"
