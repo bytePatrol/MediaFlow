@@ -62,3 +62,40 @@ async def delete_preset(preset_id: int, session: AsyncSession = Depends(get_sess
     await session.delete(preset)
     await session.commit()
     return {"status": "deleted"}
+
+
+@router.get("/{preset_id}/export")
+async def export_preset(preset_id: int, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(TranscodePreset).where(TranscodePreset.id == preset_id))
+    preset = result.scalar_one_or_none()
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    data = {
+        "name": preset.name,
+        "description": preset.description,
+        "video_codec": preset.video_codec,
+        "target_resolution": preset.target_resolution,
+        "bitrate_mode": preset.bitrate_mode,
+        "crf_value": preset.crf_value,
+        "target_bitrate": preset.target_bitrate,
+        "hw_accel": preset.hw_accel,
+        "audio_mode": preset.audio_mode,
+        "audio_codec": preset.audio_codec,
+        "container": preset.container,
+        "subtitle_mode": preset.subtitle_mode,
+        "custom_flags": preset.custom_flags,
+        "hdr_mode": preset.hdr_mode,
+        "two_pass": preset.two_pass,
+        "encoder_tune": preset.encoder_tune,
+    }
+    return data
+
+
+@router.post("/import")
+async def import_preset(data: TranscodePresetCreate, session: AsyncSession = Depends(get_session)):
+    preset = TranscodePreset(**data.model_dump())
+    preset.is_builtin = False
+    session.add(preset)
+    await session.commit()
+    await session.refresh(preset)
+    return preset

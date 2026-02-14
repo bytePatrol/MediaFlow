@@ -98,6 +98,9 @@ class TranscodeJobResponse(BaseModel):
     completed_at: Optional[datetime] = None
     media_title: Optional[str] = None
     cloud_cost_usd: Optional[float] = None
+    retry_count: int = 0
+    max_retries: int = 3
+    validation_status: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

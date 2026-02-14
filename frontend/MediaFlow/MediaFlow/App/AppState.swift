@@ -37,6 +37,7 @@ class AppState: ObservableObject {
     @Published var showAddServer: Bool = false
     @Published var toasts: [ToastItem] = []
     @Published var hasCompletedOnboarding: Bool = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
+    @Published var droppedFilePath: String?
 
     private var healthCheckTimer: Timer?
 

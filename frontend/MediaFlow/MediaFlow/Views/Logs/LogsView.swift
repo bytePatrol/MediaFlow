@@ -227,16 +227,11 @@ struct LogsView: View {
                         }
 
                         if viewModel.logs.isEmpty && !viewModel.isLoading {
-                            VStack(spacing: 12) {
-                                Image(systemName: "doc.text")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(.mfTextMuted)
-                                Text("No log entries")
-                                    .font(.mfBody)
-                                    .foregroundColor(.mfTextSecondary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 80)
+                            EmptyStateView(
+                                icon: "doc.text",
+                                title: "No log entries",
+                                description: "Log entries will appear here as the backend processes requests."
+                            )
                         }
                     }
                 }

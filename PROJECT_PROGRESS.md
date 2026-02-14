@@ -46,13 +46,13 @@ chmod +x run.sh
 
 | Area | Count |
 |------|-------|
-| Backend Python files | ~77 |
-| Frontend Swift files | ~64 |
-| API endpoints | 99 |
-| Database models (tables) | 16 |
+| Backend Python files | ~84 |
+| Frontend Swift files | ~71 |
+| API endpoints | 117 |
+| Database models (tables) | 18 |
 | Backend services | 14 (added notification helper) |
-| Background workers | 5 (transcode, health, cloud_monitor, sync, scheduler) |
-| Frontend views | 32 (added OnboardingView, WebhookConfigPanel, EmailConfigPanel + more) |
+| Background workers | 6 (transcode, health, cloud_monitor, sync, scheduler, folder_watcher) |
+| Frontend views | 39 (added MenuBarContentView, CommandPaletteView, OnboardingView, WebhookConfigPanel, EmailConfigPanel + more) |
 | Frontend view models | 8 |
 | Built-in transcode presets | 4 (Balanced, Storage Saver, Mobile Optimized, Ultra Fidelity) |
 
@@ -145,20 +145,36 @@ chmod +x run.sh
 - [x] Loading skeletons for async states
 - [x] Glassmorphic dark theme (#256af4 primary)
 - [x] NSPanel modals for proper keyboard focus (macOS SPM workaround)
-- [x] **Email notifications** — SMTP config UI + test button ← NEW
-- [x] **Webhook notifications** — URL config UI + test button ← NEW
-- [x] **Discord notifications** — webhook dispatch with embed formatting + UI ← NEW
-- [x] **Slack notifications** — webhook dispatch with Block Kit formatting + UI ← NEW
-- [x] **Telegram notifications** — Bot API dispatch + UI ← NEW
-- [x] **Notification event registry** — 10 event types with descriptions, configurable per channel ← NEW
-- [x] **Notification wiring** — fire-and-forget from transcode worker, health worker, cloud monitor, plex sync, recommendation service ← NEW
-- [x] **Destructive action confirmations** — confirmation dialogs for Clear All, server delete, cloud teardown ← NEW
-- [x] **Keyboard shortcuts** — Cmd+1–8 sidebar navigation ← NEW
-- [x] **Sidebar active job badge** — red count badge on Processing nav item ← NEW
-- [x] **Context menus** — right-click on media rows (Copy Title, Select for Transcode) and job cards (Copy FFmpeg Command, Copy Log, Cancel) ← NEW
-- [x] **Hover & press micro-interactions** — `.hoverHighlight()`, `.hoverCard()`, `.pressEffect()` modifiers ← NEW
-- [x] **Settings tab animations** — smooth fade transitions between tabs ← NEW
-- [x] **First-run onboarding wizard** — 4-step overlay (Welcome → Connect Plex → Add Worker → Ready) ← NEW
+- [x] **Email notifications** — SMTP config UI + test button
+- [x] **Webhook notifications** — URL config UI + test button
+- [x] **Discord notifications** — webhook dispatch with embed formatting + UI
+- [x] **Slack notifications** — webhook dispatch with Block Kit formatting + UI
+- [x] **Telegram notifications** — Bot API dispatch + UI
+- [x] **Notification event registry** — 10 event types with descriptions, configurable per channel
+- [x] **Notification wiring** — fire-and-forget from transcode worker, health worker, cloud monitor, plex sync, recommendation service
+- [x] **Destructive action confirmations** — confirmation dialogs for Clear All, server delete, cloud teardown
+- [x] **Keyboard shortcuts** — Cmd+1–9 sidebar navigation + Cmd+K command palette
+- [x] **Sidebar active job badge** — red count badge on Processing nav item
+- [x] **Context menus** — right-click on media rows (Copy Title, Select for Transcode) and job cards (Copy FFmpeg Command, Copy Log, Cancel)
+- [x] **Hover & press micro-interactions** — `.hoverHighlight()`, `.hoverCard()`, `.pressEffect()` modifiers
+- [x] **Settings tab animations** — smooth fade transitions between tabs
+- [x] **First-run onboarding wizard** — 4-step overlay (Welcome → Connect Plex → Add Worker → Ready)
+- [x] **Tooltips** — `.help()` on all icon-only buttons across the app
+- [x] **EmptyStateView** — Consistent usage across ProcessingQueue, Recommendations, Logs, Analytics
+- [x] **Smooth animations** — `.transition()` and `.animation()` on warning banners, view switches
+- [x] **Preset import/export** — `GET /presets/{id}/export` + `POST /presets/import`
+- [x] **Auto-retry failed jobs** — exponential backoff (1/5/15min), configurable max retries, retry badge
+- [x] **Stuck job detection** — HealthWorker checks for stalled transcoding jobs, configurable timeout
+- [x] **Post-transcode validation** — ffprobe verification (video stream, file size, duration match)
+- [x] **Scheduled library scans** — configurable interval (6h/12h/daily/weekly), optional post-sync analysis
+- [x] **Sonarr/Radarr webhooks** — `POST /webhooks/ingest/{source_id}` auto-creates transcode jobs
+- [x] **Folder watch auto-transcode** — FolderWatcherWorker polls directories every 30s for new media
+- [x] **Sparklines in trend cards** — mini line charts (40px) in KPI cards
+- [x] **Interactive chart tooltips** — `.chartOverlay` with DragGesture on savings chart
+- [x] **Storage timeline chart** — dual-line actual vs without-transcoding with shaded savings area
+- [x] **Drag-and-drop transcode** — drop video files on sidebar, auto-navigates to Quick Transcode
+- [x] **Menu bar extra** — MenuBarExtra scene with backend status, active jobs, Open/Quit
+- [x] **Command palette (Cmd+K)** — fuzzy search across navigation items and actions
 - [ ] **macOS push notifications** — System notification center integration
 
 ### Phase 7: Documentation & Release — COMPLETE (for public release)
@@ -178,15 +194,17 @@ Frontend (SwiftUI macOS 14+)
   └── MVVM pattern
   └── APIClient (REST) + WebSocketClient (real-time)
   └── BackendService (typed API wrapper)
-  └── 8 ViewModels → 32 Views
+  └── 8 ViewModels → 39 Views
+  └── MenuBarExtra scene (menu bar widget)
+  └── Command palette (Cmd+K fuzzy search)
 
 Backend (Python FastAPI, port 9876)
-  └── 16 API route files → 99 endpoints
+  └── 18 API route files → 117 endpoints
   └── 14 services (business logic)
-  └── 5 background workers (transcode, health, cloud_monitor, sync, scheduler)
+  └── 6 background workers (transcode, health, cloud_monitor, sync, scheduler, folder_watcher)
   └── 8 utility modules (SSH, FFmpeg, FFprobe, paths, security, notify)
   └── SQLite with WAL mode, async via aiosqlite
-  └── 16 ORM models
+  └── 18 ORM models
 ```
 
 ---
@@ -199,9 +217,9 @@ Backend (Python FastAPI, port 9876)
 | `/api/plex` | plex.py | 9 | Plex OAuth, server mgmt, sync |
 | `/api/library` | library.py | 5 | Media queries, stats, export |
 | `/api/transcode` | transcode.py | 10 | Job CRUD, queue, dry-run, **probe, manual** |
-| `/api/presets` | presets.py | 5 | Encoding preset CRUD |
+| `/api/presets` | presets.py | 7 | Encoding preset CRUD, **import/export** |
 | `/api/servers` | servers.py | 12 | Workers, provision, benchmark |
-| `/api/analytics` | analytics.py | 11 | Stats, charts, savings, **trends, predictions, health score, server performance, top opportunities** |
+| `/api/analytics` | analytics.py | 13 | Stats, charts, savings, **trends, predictions, health score, server performance, top opportunities, sparklines, storage timeline** |
 | `/api/recommendations` | recommendations.py | 7 | Analysis, batch queue, **history, savings** |
 | `/api/settings` | settings.py | 3 | App configuration |
 | `/api/notifications` | notifications.py | 6 | Notification config CRUD, **events registry, test** |
@@ -209,6 +227,8 @@ Backend (Python FastAPI, port 9876)
 | `/api/tags` | tags.py | — | Custom tag CRUD |
 | `/api/collections` | collections.py | — | Collection builder |
 | `/api/filter-presets` | filter_presets.py | 4 | **Filter preset CRUD** |
+| `/api/webhooks` | webhooks.py | 5 | **Sonarr/Radarr webhook CRUD + ingest** |
+| `/api/watch-folders` | watch_folders.py | 5 | **Watch folder CRUD + toggle** |
 | `/api/logs` | logs.py | 3 | Logs, diagnostics, export |
 | `/ws` | websocket.py | 1 | WebSocket pub/sub |
 
@@ -218,7 +238,7 @@ Backend (Python FastAPI, port 9876)
 
 | Feature Area | Views | ViewModel |
 |-------------|-------|-----------|
-| Navigation | ContentView, SidebarView | — |
+| Navigation | ContentView, SidebarView, **MenuBarContentView**, **CommandPaletteView** | — |
 | Onboarding | **OnboardingView** (4-step wizard) | PlexAuthViewModel |
 | Library | LibraryDashboardView, MediaTableView, MediaRowView, FilterSidebarView, FilterPillBarView, **CollectionBuilderPanel** | LibraryViewModel |
 | Transcode | ProcessingQueueView, **ManualTranscodeView**, TranscodeConfigModal, TranscodeJobCardView, ActiveJobsDockView | TranscodeViewModel, TranscodeConfigViewModel |
@@ -231,7 +251,7 @@ Backend (Python FastAPI, port 9876)
 
 ---
 
-## Database Models (16 tables)
+## Database Models (18 tables)
 
 | Model | Table | Key Fields |
 |-------|-------|------------|
@@ -251,6 +271,8 @@ Backend (Python FastAPI, port 9876)
 | AppSetting | app_settings | key, value (KV store) |
 | FilterPreset | filter_presets | name, filters (JSON) |
 | NotificationConfig | notification_configs | type, name, config_json, events, enabled, **last_triggered_at, trigger_count** |
+| **WebhookSource** | **webhook_sources** | **name, source_type, secret, preset_id, is_enabled, events_received** |
+| **WatchFolder** | **watch_folders** | **path, preset_id, extensions, delay_seconds, is_enabled, files_processed** |
 
 ---
 
@@ -771,14 +793,13 @@ asyncssh>=2.14.0
 
 ## What to Work On Next
 
-### Verification (resume here)
-1. **Verify CUDA hardware decode works** — `_maybe_upgrade_to_nvenc()` sets `hw_accel="nvenc"` for cloud workers. Confirm `-hwaccel cuda` in ffmpeg command and FPS boost over CPU decode.
-2. **Test pre-upload pipeline end-to-end** — Queue 2+ jobs targeting same cloud GPU worker. Verify source pre-staging skips upload for second job.
-3. **Verify parallel SSH download with progress** — Download now passes `total_size`, so parallel SSH should be used for large outputs.
+### Verification
+1. **Test all 16 polish features end-to-end** — functional testing with running backend
+2. **Verify CUDA hardware decode works** — `_maybe_upgrade_to_nvenc()` sets `hw_accel="nvenc"` for cloud workers. Confirm `-hwaccel cuda` in ffmpeg command and FPS boost over CPU decode.
+3. **Test pre-upload pipeline end-to-end** — Queue 2+ jobs targeting same cloud GPU worker. Verify source pre-staging skips upload for second job.
+4. **Verify parallel SSH download with progress** — Download now passes `total_size`, so parallel SSH should be used for large outputs.
 
-### Future Enhancements
-1. **PDF health reports** — Export library analysis as PDF.
-2. **Scheduling UI** — Configure transcode processing hours (e.g., overnight only).
-3. **App icon** — Currently using default Xcode icon.
-4. **macOS push notifications** — System notification center integration (works in Xcode builds; SPM builds gracefully skip).
-5. **Intelligence enhancements** — Per-library analysis, schedule-based auto-analysis, recommendation grouping in UI.
+### Remaining Features
+1. **macOS push notifications** — System notification center integration (works in Xcode builds; SPM builds gracefully skip).
+2. **App icon** — Currently using default Xcode icon.
+3. **Intelligence enhancements** — Per-library analysis, schedule-based auto-analysis, recommendation grouping in UI.

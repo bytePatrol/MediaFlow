@@ -90,6 +90,12 @@ struct QuickTranscodePageView: View {
             await loadPresets()
             await loadServers()
         }
+        .onChange(of: appState.droppedFilePath) { _, newPath in
+            if let path = newPath {
+                appState.droppedFilePath = nil
+                Task { await selectFile(path) }
+            }
+        }
     }
 
     // MARK: - File Selection Panel

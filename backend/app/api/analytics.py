@@ -100,6 +100,25 @@ async def get_health_score(session: AsyncSession = Depends(get_session)):
     return await service.get_health_score()
 
 
+@router.get("/trend-sparkline")
+async def get_trend_sparkline(
+    metric: str = Query(...),
+    days: int = Query(30, ge=7, le=365),
+    session: AsyncSession = Depends(get_session),
+):
+    service = AnalyticsService(session)
+    return await service.get_trend_sparkline(metric=metric, days=days)
+
+
+@router.get("/storage-timeline")
+async def get_storage_timeline(
+    days: int = Query(90, ge=7, le=365),
+    session: AsyncSession = Depends(get_session),
+):
+    service = AnalyticsService(session)
+    return await service.get_storage_timeline(days=days)
+
+
 @router.get("/top-opportunities")
 async def get_top_opportunities(session: AsyncSession = Depends(get_session)):
     service = AnalyticsService(session)

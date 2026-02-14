@@ -3,6 +3,9 @@ import Charts
 
 struct AnalyticsDashboardView: View {
     @StateObject private var viewModel = AnalyticsViewModel()
+    @State private var savingsTooltipDate: String?
+    @State private var savingsTooltipValue: Int?
+    @State private var savingsTooltipPosition: CGPoint = .zero
 
     private let timeRanges = [7, 30, 90, 365]
 
@@ -59,6 +62,7 @@ struct AnalyticsDashboardView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(viewModel.isExportingPDF)
+                    .help("Export analytics as PDF")
 
                     Button {
                         Task { await viewModel.refresh() }
@@ -71,6 +75,7 @@ struct AnalyticsDashboardView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
+                    .help("Refresh analytics")
                 }
 
                 // Error banner
@@ -103,6 +108,11 @@ struct AnalyticsDashboardView: View {
                 // 4. Predictions card
                 if let pred = viewModel.predictions, pred.dailyRate > 0 {
                     predictionsCard(pred)
+                }
+
+                // 4.5 Storage Timeline
+                if !viewModel.storageTimeline.isEmpty {
+                    storageTimelineChart
                 }
 
                 // 5. Charts row
@@ -220,9 +230,9 @@ struct AnalyticsDashboardView: View {
 
     private var trendKPICards: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 400))], spacing: 16) {
-            trendCard(title: "Total Media Size", value: viewModel.overview?.totalMediaSize.formattedFileSize ?? "--", trend: trendFor("items_added"))
-            trendCard(title: "Total Savings", value: viewModel.overview?.totalSavingsAchieved.formattedFileSize ?? "--", trend: trendFor("storage_saved"))
-            trendCard(title: "Completed Jobs", value: "\(viewModel.overview?.completedTranscodes ?? 0)", trend: trendFor("jobs_completed"))
+            trendCard(title: "Total Media Size", value: viewModel.overview?.totalMediaSize.formattedFileSize ?? "--", trend: trendFor("items_added"), sparkline: viewModel.sparklines["items_added"])
+            trendCard(title: "Total Savings", value: viewModel.overview?.totalSavingsAchieved.formattedFileSize ?? "--", trend: trendFor("storage_saved"), sparkline: viewModel.sparklines["storage_saved"])
+            trendCard(title: "Completed Jobs", value: "\(viewModel.overview?.completedTranscodes ?? 0)", trend: trendFor("jobs_completed"), sparkline: viewModel.sparklines["jobs_completed"])
             trendCard(title: "Workers Online", value: "\(viewModel.overview?.workersOnline ?? 0)", trend: nil)
         }
     }
@@ -231,7 +241,7 @@ struct AnalyticsDashboardView: View {
         viewModel.trends?.trends.first { $0.metric == metric }
     }
 
-    private func trendCard(title: String, value: String, trend: TrendData?) -> some View {
+    private func trendCard(title: String, value: String, trend: TrendData?, sparkline: [SparklinePoint]? = nil) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title.uppercased())
                 .font(.system(size: 9, weight: .bold))
@@ -248,6 +258,23 @@ struct AnalyticsDashboardView: View {
                         .font(.system(size: 11, weight: .semibold))
                 }
                 .foregroundColor(trend.direction == "up" ? .mfSuccess : trend.direction == "down" ? .mfError : .mfTextMuted)
+            }
+            if let points = sparkline, points.count > 1 {
+                Chart(points) { point in
+                    LineMark(
+                        x: .value("Date", point.date),
+                        y: .value("Value", point.value)
+                    )
+                    .foregroundStyle(Color.mfPrimary.opacity(0.6))
+                    AreaMark(
+                        x: .value("Date", point.date),
+                        y: .value("Value", point.value)
+                    )
+                    .foregroundStyle(Color.mfPrimary.opacity(0.1).gradient)
+                }
+                .chartXAxis(.hidden)
+                .chartYAxis(.hidden)
+                .frame(height: 40)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -316,12 +343,45 @@ struct AnalyticsDashboardView: View {
                 }
                 .frame(height: 220)
                 .chartXAxis(.hidden)
+                .chartOverlay { proxy in
+                    GeometryReader { geo in
+                        Rectangle().fill(Color.clear).contentShape(Rectangle())
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { value in
+                                        guard let plotFrame = proxy.plotFrame else { return }
+                                        let x = value.location.x - geo[plotFrame].origin.x
+                                        if let date: String = proxy.value(atX: x) {
+                                            if let point = viewModel.savingsHistory.first(where: { $0.date == date }) {
+                                                savingsTooltipDate = point.date
+                                                savingsTooltipValue = point.cumulativeSavings
+                                                savingsTooltipPosition = value.location
+                                            }
+                                        }
+                                    }
+                                    .onEnded { _ in
+                                        savingsTooltipDate = nil
+                                    }
+                            )
+                    }
+                }
+                if let date = savingsTooltipDate, let value = savingsTooltipValue {
+                    Text("\(date): \(value.formattedFileSize)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.mfSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.mfGlassBorder))
+                }
             } else {
-                Text("No data yet")
-                    .font(.mfCaption)
-                    .foregroundColor(.mfTextMuted)
-                    .frame(height: 220)
-                    .frame(maxWidth: .infinity)
+                EmptyStateView(
+                    icon: "chart.line.uptrend.xyaxis",
+                    title: "No data yet",
+                    description: "Savings data will appear after transcoding jobs complete."
+                )
+                .frame(height: 220)
             }
         }
         .padding(20)
@@ -481,6 +541,69 @@ struct AnalyticsDashboardView: View {
                 .padding(10)
                 .background(Color.mfSurfaceLight.opacity(0.3))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .padding(20)
+        .cardStyle()
+        .hoverCard()
+    }
+
+    // MARK: - Storage Timeline
+
+    private var storageTimelineChart: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Storage Timeline")
+                    .font(.mfSubheadline)
+                Spacer()
+                HStack(spacing: 12) {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.mfError.opacity(0.6)).frame(width: 8, height: 8)
+                        Text("Without Transcoding")
+                            .font(.system(size: 10))
+                            .foregroundColor(.mfTextMuted)
+                    }
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.mfPrimary).frame(width: 8, height: 8)
+                        Text("Actual Size")
+                            .font(.system(size: 10))
+                            .foregroundColor(.mfTextMuted)
+                    }
+                }
+            }
+            Chart {
+                ForEach(viewModel.storageTimeline) { point in
+                    LineMark(
+                        x: .value("Date", point.date),
+                        y: .value("Size", point.withoutTranscoding)
+                    )
+                    .foregroundStyle(Color.mfError.opacity(0.6))
+                    .lineStyle(StrokeStyle(dash: [5, 3]))
+
+                    LineMark(
+                        x: .value("Date", point.date),
+                        y: .value("Size", point.actualSize)
+                    )
+                    .foregroundStyle(Color.mfPrimary)
+
+                    AreaMark(
+                        x: .value("Date", point.date),
+                        yStart: .value("Actual", point.actualSize),
+                        yEnd: .value("Without", point.withoutTranscoding)
+                    )
+                    .foregroundStyle(Color.mfSuccess.opacity(0.1).gradient)
+                }
+            }
+            .chartXAxis(.hidden)
+            .frame(height: 200)
+
+            if let last = viewModel.storageTimeline.last {
+                HStack {
+                    Spacer()
+                    Text("Total savings: \(last.savings.formattedFileSize)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.mfSuccess)
+                }
             }
         }
         .padding(20)

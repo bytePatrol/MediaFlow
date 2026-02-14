@@ -1563,6 +1563,15 @@ struct SchedulingSettingsView: View {
     @State private var isSaving: Bool = false
     @State private var statusMessage: String = ""
     @State private var statusIsError: Bool = false
+    @State private var maxRetries: Double = 3
+    @State private var stuckTimeout: Double = 30
+    @State private var syncScheduleEnabled: Bool = false
+    @State private var syncInterval: String = "daily"
+    @State private var webhookSources: [WebhookSourceInfo] = []
+    @State private var watchFolders: [WatchFolderInfo] = []
+    @State private var newWebhookName: String = ""
+    @State private var newWebhookType: String = "sonarr"
+    @State private var newWatchPath: String = ""
 
     private let service = BackendService()
     private let dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -1576,6 +1585,43 @@ struct SchedulingSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
+            // Library Sync Schedule
+            VStack(alignment: .leading, spacing: 12) {
+                Text("LIBRARY SYNC SCHEDULE")
+                    .mfSectionHeader()
+
+                Toggle(isOn: $syncScheduleEnabled) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Enable scheduled library sync")
+                            .font(.mfBody)
+                            .foregroundColor(.mfTextPrimary)
+                        Text("Automatically sync Plex libraries on a recurring schedule. Optionally runs analysis after each sync.")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextMuted)
+                    }
+                }
+                .toggleStyle(.switch)
+                .tint(.mfPrimary)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Sync Interval")
+                        .font(.mfCaption)
+                        .foregroundColor(.mfTextMuted)
+                    Picker("Sync Interval", selection: $syncInterval) {
+                        Text("Every 6 hours").tag("6h")
+                        Text("Every 12 hours").tag("12h")
+                        Text("Daily").tag("daily")
+                        Text("Weekly").tag("weekly")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 400)
+                }
+                .opacity(syncScheduleEnabled ? 1.0 : 0.5)
+                .allowsHitTesting(syncScheduleEnabled)
+            }
+            .padding(20)
+            .cardStyle()
+
             // Enable/Disable
             VStack(alignment: .leading, spacing: 12) {
                 Text("TRANSCODE SCHEDULING")
@@ -1671,6 +1717,197 @@ struct SchedulingSettingsView: View {
             .opacity(scheduleEnabled ? 1.0 : 0.5)
             .allowsHitTesting(scheduleEnabled)
 
+            // Transcode Reliability
+            VStack(alignment: .leading, spacing: 12) {
+                Text("TRANSCODE RELIABILITY")
+                    .mfSectionHeader()
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Max Auto-Retries")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextMuted)
+                        Spacer()
+                        Text("\(Int(maxRetries)) retries")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.mfPrimary)
+                    }
+                    .frame(maxWidth: 450)
+                    Slider(value: $maxRetries, in: 0...10, step: 1)
+                        .frame(maxWidth: 450)
+                        .tint(.mfPrimary)
+                    Text("Number of automatic retry attempts for failed transcode jobs")
+                        .font(.system(size: 10))
+                        .foregroundColor(.mfTextMuted)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Stuck Job Timeout")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextMuted)
+                        Spacer()
+                        Text("\(Int(stuckTimeout)) min")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.mfPrimary)
+                    }
+                    .frame(maxWidth: 450)
+                    Slider(value: $stuckTimeout, in: 10...120, step: 5)
+                        .frame(maxWidth: 450)
+                        .tint(.mfPrimary)
+                    Text("Mark transcoding jobs as stuck if no progress update for this duration")
+                        .font(.system(size: 10))
+                        .foregroundColor(.mfTextMuted)
+                }
+            }
+            .padding(20)
+            .cardStyle()
+
+            // Webhook Sources
+            VStack(alignment: .leading, spacing: 12) {
+                Text("WEBHOOK SOURCES")
+                    .mfSectionHeader()
+
+                Text("Receive webhooks from Sonarr/Radarr to auto-transcode new media.")
+                    .font(.mfBody)
+                    .foregroundColor(.mfTextSecondary)
+
+                ForEach(webhookSources) { source in
+                    HStack(spacing: 12) {
+                        Image(systemName: source.sourceType == "sonarr" ? "tv" : "film")
+                            .foregroundColor(.mfPrimary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(source.name)
+                                .font(.system(size: 13, weight: .medium))
+                            Text("POST /api/webhooks/ingest/\(source.id)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.mfTextMuted)
+                                .textSelection(.enabled)
+                        }
+                        Spacer()
+                        Text("\(source.eventsReceived) events")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextMuted)
+                        Button {
+                            Task {
+                                try? await service.deleteWebhookSource(id: source.id)
+                                await loadWebhooks()
+                            }
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11))
+                                .foregroundColor(.mfTextMuted)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(10)
+                    .background(Color.mfSurfaceLight.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
+                HStack(spacing: 8) {
+                    TextField("Source name", text: $newWebhookName)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 200)
+                    Picker("Type", selection: $newWebhookType) {
+                        Text("Sonarr").tag("sonarr")
+                        Text("Radarr").tag("radarr")
+                    }
+                    .frame(width: 120)
+                    Button {
+                        guard !newWebhookName.isEmpty else { return }
+                        Task {
+                            _ = try? await service.createWebhookSource(
+                                request: WebhookSourceCreateRequest(name: newWebhookName, sourceType: newWebhookType)
+                            )
+                            newWebhookName = ""
+                            await loadWebhooks()
+                        }
+                    } label: {
+                        Text("Add")
+                            .secondaryButton()
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(20)
+            .cardStyle()
+
+            // Watch Folders
+            VStack(alignment: .leading, spacing: 12) {
+                Text("WATCH FOLDERS")
+                    .mfSectionHeader()
+
+                Text("Monitor directories for new media files and auto-queue transcode jobs.")
+                    .font(.mfBody)
+                    .foregroundColor(.mfTextSecondary)
+
+                ForEach(watchFolders) { folder in
+                    HStack(spacing: 12) {
+                        Image(systemName: "folder.badge.gearshape")
+                            .foregroundColor(folder.isEnabled ? .mfPrimary : .mfTextMuted)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(folder.path)
+                                .font(.system(size: 12, design: .monospaced))
+                                .lineLimit(1)
+                            Text("\(folder.filesProcessed) files processed")
+                                .font(.mfCaption)
+                                .foregroundColor(.mfTextMuted)
+                        }
+                        Spacer()
+                        Button {
+                            Task {
+                                _ = try? await service.toggleWatchFolder(id: folder.id)
+                                await loadWatchFolders()
+                            }
+                        } label: {
+                            Image(systemName: folder.isEnabled ? "pause.circle" : "play.circle")
+                                .foregroundColor(folder.isEnabled ? .mfSuccess : .mfTextMuted)
+                        }
+                        .buttonStyle(.plain)
+                        Button {
+                            Task {
+                                try? await service.deleteWatchFolder(id: folder.id)
+                                await loadWatchFolders()
+                            }
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 11))
+                                .foregroundColor(.mfTextMuted)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(10)
+                    .background(Color.mfSurfaceLight.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
+                Button {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.canChooseFiles = false
+                    panel.allowsMultipleSelection = false
+                    panel.message = "Select a folder to watch for new media files"
+                    if panel.runModal() == .OK, let url = panel.url {
+                        Task {
+                            _ = try? await service.createWatchFolder(
+                                request: WatchFolderCreateRequest(path: url.path)
+                            )
+                            await loadWatchFolders()
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                        Text("Add Watch Folder")
+                    }
+                    .secondaryButton()
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(20)
+            .cardStyle()
+
             // Save
             HStack {
                 Button {
@@ -1732,10 +1969,26 @@ struct SchedulingSettingsView: View {
             if let val = daysResult.value {
                 activeDays = Set(val.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) })
             }
+
+            let retriesResult = try await service.getScheduleSetting(key: "transcode.max_retries")
+            if let val = retriesResult.value, let num = Double(val) { maxRetries = num }
+
+            let stuckResult = try await service.getScheduleSetting(key: "transcode.stuck_timeout_minutes")
+            if let val = stuckResult.value, let num = Double(val) { stuckTimeout = num }
+
+            let syncEnabledResult = try await service.getScheduleSetting(key: "sync.schedule_enabled")
+            syncScheduleEnabled = syncEnabledResult.value == "true"
+
+            let syncIntervalResult = try await service.getScheduleSetting(key: "sync.schedule_interval")
+            if let val = syncIntervalResult.value, ["6h", "12h", "daily", "weekly"].contains(val) {
+                syncInterval = val
+            }
         } catch {
             // Use defaults on failure
         }
         isLoading = false
+        await loadWebhooks()
+        await loadWatchFolders()
     }
 
     private func saveSettings() async {
@@ -1747,6 +2000,10 @@ struct SchedulingSettingsView: View {
                 ("schedule.active_hours_start", timeToString(activeHoursStart)),
                 ("schedule.active_hours_end", timeToString(activeHoursEnd)),
                 ("schedule.active_days", activeDays.sorted().map(String.init).joined(separator: ",")),
+                ("transcode.max_retries", "\(Int(maxRetries))"),
+                ("transcode.stuck_timeout_minutes", "\(Int(stuckTimeout))"),
+                ("sync.schedule_enabled", syncScheduleEnabled ? "true" : "false"),
+                ("sync.schedule_interval", syncInterval),
             ]
             for (key, value) in settings {
                 _ = try await service.setScheduleSetting(key: key, value: value)
@@ -1758,6 +2015,14 @@ struct SchedulingSettingsView: View {
             statusIsError = true
         }
         isSaving = false
+    }
+
+    private func loadWebhooks() async {
+        webhookSources = (try? await service.getWebhookSources()) ?? []
+    }
+
+    private func loadWatchFolders() async {
+        watchFolders = (try? await service.getWatchFolders()) ?? []
     }
 }
 

@@ -267,6 +267,63 @@ class HealthWorker:
 
             await session.commit()
 
+        await self._check_stuck_jobs()
+
+    async def _check_stuck_jobs(self):
+        """Detect and handle jobs stuck in transcoding state."""
+        async with async_session_factory() as session:
+            from app.models.transcode_job import TranscodeJob
+            from datetime import timedelta
+
+            # Load configurable timeout (default 30 minutes)
+            from app.models.app_settings import AppSetting
+            timeout_result = await session.execute(
+                select(AppSetting).where(AppSetting.key == "transcode.stuck_timeout_minutes")
+            )
+            timeout_setting = timeout_result.scalar_one_or_none()
+            timeout_minutes = int(timeout_setting.value) if timeout_setting and timeout_setting.value else 30
+
+            cutoff = datetime.utcnow() - timedelta(minutes=timeout_minutes)
+            result = await session.execute(
+                select(TranscodeJob).where(
+                    TranscodeJob.status == "transcoding",
+                    TranscodeJob.updated_at < cutoff,
+                )
+            )
+            stuck_jobs = result.scalars().all()
+
+            for job in stuck_jobs:
+                logger.warning(f"Job {job.id} detected as stuck (no update for {timeout_minutes}m)")
+                if (job.retry_count or 0) < (job.max_retries or 3):
+                    job.retry_count = (job.retry_count or 0) + 1
+                    job.status = "queued"
+                    job.progress_percent = 0.0
+                    job.current_fps = None
+                    job.eta_seconds = None
+                    job.worker_server_id = None
+                    await manager.broadcast("job.stuck", {
+                        "job_id": job.id,
+                        "action": "requeued",
+                        "retry_count": job.retry_count,
+                    })
+                else:
+                    job.status = "failed"
+                    job.status_detail = f"Stuck: no progress for {timeout_minutes} minutes"
+                    await manager.broadcast("job.stuck", {
+                        "job_id": job.id,
+                        "action": "failed",
+                    })
+
+                from app.utils.notify import fire_notification
+                import asyncio as _asyncio
+                _asyncio.ensure_future(fire_notification("job.stuck", {
+                    "job_id": job.id,
+                    "media_title": getattr(job, 'media_title', None) or f"Job #{job.id}",
+                }))
+
+            if stuck_jobs:
+                await session.commit()
+
     async def _handle_failure(self, server: WorkerServer, session):
         """Track consecutive failures and auto-disable after threshold."""
         if server.status == "online":

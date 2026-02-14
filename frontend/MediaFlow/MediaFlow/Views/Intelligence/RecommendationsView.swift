@@ -242,19 +242,13 @@ struct RecommendationsView: View {
                     }
 
                     if viewModel.recommendations.isEmpty && !viewModel.isLoading {
-                        VStack(spacing: 12) {
-                            Image(systemName: "lightbulb")
-                                .font(.system(size: 40))
-                                .foregroundColor(.mfTextMuted)
-                            Text("No recommendations yet")
-                                .font(.mfBody)
-                                .foregroundColor(.mfTextSecondary)
-                            Text("Run analysis to generate recommendations.")
-                                .font(.mfCaption)
-                                .foregroundColor(.mfTextMuted)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 60)
+                        EmptyStateView(
+                            icon: "lightbulb",
+                            title: "No recommendations yet",
+                            description: "Run analysis to generate optimization recommendations for your library.",
+                            actionTitle: "Run Analysis",
+                            action: { Task { await viewModel.runAnalysis() } }
+                        )
                     }
                 }
                 .padding(24)

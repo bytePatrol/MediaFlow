@@ -109,61 +109,66 @@ struct ProcessingQueueView: View {
             .overlay(Rectangle().frame(height: 1).foregroundColor(.mfGlassBorder), alignment: .bottom)
 
             // No workers warning / cloud deploy banner
-            if viewModel.hasWorkerIssue {
-                if viewModel.isDeployingCloud {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                            .frame(width: 14, height: 14)
-                        Text("Cloud GPU is building — queued jobs will start automatically when ready.")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.mfPrimary)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(Color.mfPrimary.opacity(0.08))
-                    .overlay(Rectangle().frame(height: 1).foregroundColor(.mfPrimary.opacity(0.2)), alignment: .bottom)
-                } else {
-                    HStack(spacing: 10) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(.mfWarning)
-                        Text("No worker servers are online — queued jobs cannot be processed.")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.mfWarning)
-                        Spacer()
-                        if viewModel.cloudApiKeyConfigured {
-                            Button {
-                                cloudDeployPanel.show {
-                                    viewModel.isDeployingCloud = true
-                                }
-                            } label: {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "cloud.bolt.fill")
-                                        .font(.system(size: 11))
-                                    Text("Deploy Cloud GPU")
-                                        .font(.system(size: 11, weight: .semibold))
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 5)
-                                .background(Color.mfPrimary)
-                                .foregroundColor(.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            Text("Go to Settings → Servers to add or enable a worker.")
-                                .font(.system(size: 11))
-                                .foregroundColor(.mfTextMuted)
+            Group {
+                if viewModel.hasWorkerIssue {
+                    if viewModel.isDeployingCloud {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .frame(width: 14, height: 14)
+                            Text("Cloud GPU is building — queued jobs will start automatically when ready.")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.mfPrimary)
+                            Spacer()
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.mfPrimary.opacity(0.08))
+                        .overlay(Rectangle().frame(height: 1).foregroundColor(.mfPrimary.opacity(0.2)), alignment: .bottom)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    } else {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 14))
+                                .foregroundColor(.mfWarning)
+                            Text("No worker servers are online — queued jobs cannot be processed.")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.mfWarning)
+                            Spacer()
+                            if viewModel.cloudApiKeyConfigured {
+                                Button {
+                                    cloudDeployPanel.show {
+                                        viewModel.isDeployingCloud = true
+                                    }
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "cloud.bolt.fill")
+                                            .font(.system(size: 11))
+                                        Text("Deploy Cloud GPU")
+                                            .font(.system(size: 11, weight: .semibold))
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 5)
+                                    .background(Color.mfPrimary)
+                                    .foregroundColor(.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                Text("Go to Settings → Servers to add or enable a worker.")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.mfTextMuted)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.mfWarning.opacity(0.08))
+                        .overlay(Rectangle().frame(height: 1).foregroundColor(.mfWarning.opacity(0.2)), alignment: .bottom)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(Color.mfWarning.opacity(0.08))
-                    .overlay(Rectangle().frame(height: 1).foregroundColor(.mfWarning.opacity(0.2)), alignment: .bottom)
                 }
             }
+            .animation(.easeInOut(duration: 0.3), value: viewModel.hasWorkerIssue)
 
             // Main content
             HSplitView {
@@ -217,16 +222,11 @@ struct ProcessingQueueView: View {
                         }
 
                         if viewModel.jobs.isEmpty && !viewModel.isLoading {
-                            VStack(spacing: 12) {
-                                Image(systemName: "tray")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(.mfTextMuted)
-                                Text("No jobs in queue")
-                                    .font(.mfBody)
-                                    .foregroundColor(.mfTextSecondary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 80)
+                            EmptyStateView(
+                                icon: "tray",
+                                title: "No jobs in queue",
+                                description: "Transcode jobs will appear here when you start processing."
+                            )
                         }
                     }
                     .padding(20)

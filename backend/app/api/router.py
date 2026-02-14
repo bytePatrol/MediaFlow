@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api import plex, library, transcode, presets, servers, analytics, recommendations, settings, health, notifications, logs, cloud, tags, collections, filter_presets
+from app.api import plex, library, transcode, presets, servers, analytics, recommendations, settings, health, notifications, logs, cloud, tags, collections, filter_presets, webhooks, watch_folders
 
 api_router = APIRouter()
 
@@ -18,3 +18,5 @@ api_router.include_router(cloud.router, prefix="/cloud", tags=["cloud"])
 api_router.include_router(tags.router, prefix="/tags", tags=["tags"])
 api_router.include_router(collections.router, prefix="/collections", tags=["collections"])
 api_router.include_router(filter_presets.router, prefix="/filter-presets", tags=["filter-presets"])
+api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+api_router.include_router(watch_folders.router, prefix="/watch-folders", tags=["watch-folders"])

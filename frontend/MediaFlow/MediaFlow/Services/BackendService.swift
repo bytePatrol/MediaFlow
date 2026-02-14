@@ -91,6 +91,14 @@ class BackendService {
         return try await client.get("/api/presets/")
     }
 
+    func exportPreset(id: Int) async throws -> [String: AnyCodable] {
+        return try await client.get("/api/presets/\(id)/export")
+    }
+
+    func importPreset(data: [String: AnyCodable]) async throws -> TranscodePreset {
+        return try await client.post("/api/presets/import", body: data)
+    }
+
     // MARK: - Workers
     func getWorkerServers() async throws -> [WorkerServer] {
         return try await client.get("/api/servers/")
@@ -283,6 +291,19 @@ class BackendService {
         return try await client.get("/api/analytics/top-opportunities")
     }
 
+    func getTrendSparkline(metric: String, days: Int = 30) async throws -> [SparklinePoint] {
+        let items = [
+            URLQueryItem(name: "metric", value: metric),
+            URLQueryItem(name: "days", value: "\(days)"),
+        ]
+        return try await client.get("/api/analytics/trend-sparkline", queryItems: items)
+    }
+
+    func getStorageTimeline(days: Int = 90) async throws -> [StorageTimelinePoint] {
+        let items = [URLQueryItem(name: "days", value: "\(days)")]
+        return try await client.get("/api/analytics/storage-timeline", queryItems: items)
+    }
+
     func downloadHealthReport() async throws -> Data {
         return try await client.getRaw("/api/analytics/report/pdf")
     }
@@ -360,6 +381,36 @@ class BackendService {
     func getNotificationHistory(limit: Int = 50) async throws -> NotificationHistoryResponse {
         let items = [URLQueryItem(name: "limit", value: "\(limit)")]
         return try await client.get("/api/notifications/history", queryItems: items)
+    }
+
+    // MARK: - Webhook Sources
+    func getWebhookSources() async throws -> [WebhookSourceInfo] {
+        return try await client.get("/api/webhooks/sources")
+    }
+
+    func createWebhookSource(request: WebhookSourceCreateRequest) async throws -> WebhookSourceInfo {
+        return try await client.post("/api/webhooks/sources", body: request)
+    }
+
+    func deleteWebhookSource(id: Int) async throws {
+        try await client.delete("/api/webhooks/sources/\(id)")
+    }
+
+    // MARK: - Watch Folders
+    func getWatchFolders() async throws -> [WatchFolderInfo] {
+        return try await client.get("/api/watch-folders/")
+    }
+
+    func createWatchFolder(request: WatchFolderCreateRequest) async throws -> WatchFolderInfo {
+        return try await client.post("/api/watch-folders/", body: request)
+    }
+
+    func deleteWatchFolder(id: Int) async throws {
+        try await client.delete("/api/watch-folders/\(id)")
+    }
+
+    func toggleWatchFolder(id: Int) async throws -> WatchFolderInfo {
+        return try await client.post("/api/watch-folders/\(id)/toggle")
     }
 }
 

@@ -9,6 +9,7 @@ from app.models.app_settings import AppSetting
 from app.workers.transcode_worker import TranscodeWorker
 from app.workers.health_worker import HealthWorker
 from app.workers.cloud_monitor import CloudMonitorWorker
+from app.workers.folder_watcher import FolderWatcherWorker
 
 logger = logging.getLogger(__name__)
 
@@ -122,24 +123,100 @@ async def _auto_analyze_loop():
             await asyncio.sleep(60)
 
 
+_SYNC_INTERVALS = {
+    "6h": 6 * 3600,
+    "12h": 12 * 3600,
+    "daily": 24 * 3600,
+    "weekly": 7 * 24 * 3600,
+}
+
+_library_sync_task: asyncio.Task | None = None
+
+
+async def _library_sync_loop():
+    """Background loop that syncs Plex libraries at the configured interval."""
+    last_sync_time: float = 0.0
+
+    while True:
+        try:
+            await asyncio.sleep(60)
+
+            async with async_session_factory() as session:
+                result = await session.execute(
+                    select(AppSetting).where(AppSetting.key == "sync.schedule_enabled")
+                )
+                setting = result.scalar_one_or_none()
+                if not setting or setting.value != "true":
+                    continue
+
+                result = await session.execute(
+                    select(AppSetting).where(AppSetting.key == "sync.schedule_interval")
+                )
+                interval_setting = result.scalar_one_or_none()
+                interval_value = interval_setting.value if interval_setting else "daily"
+
+            interval_seconds = _SYNC_INTERVALS.get(interval_value)
+            if interval_seconds is None:
+                continue
+
+            now = asyncio.get_event_loop().time()
+            if last_sync_time == 0.0 or (now - last_sync_time) >= interval_seconds:
+                logger.info("Scheduled library sync triggered (interval=%s)", interval_value)
+                try:
+                    async with async_session_factory() as session:
+                        from app.services.plex_service import PlexService
+                        from app.models.plex_server import PlexServer
+                        servers = (await session.execute(
+                            select(PlexServer).where(PlexServer.is_active == True)
+                        )).scalars().all()
+                        for server in servers:
+                            svc = PlexService(session)
+                            await svc.sync_server(server.id)
+                            logger.info("Synced server: %s", server.name)
+
+                        # Optionally run analysis after sync
+                        auto_analyze_result = await session.execute(
+                            select(AppSetting).where(AppSetting.key == "intel.auto_analyze_on_sync")
+                        )
+                        auto_setting = auto_analyze_result.scalar_one_or_none()
+                        if auto_setting and auto_setting.value != "false":
+                            from app.services.recommendation_service import RecommendationService
+                            rec_svc = RecommendationService(session)
+                            await rec_svc.run_full_analysis(trigger="auto")
+                            logger.info("Post-sync analysis completed")
+                except Exception as exc:
+                    logger.error("Scheduled sync failed: %s", exc)
+                last_sync_time = asyncio.get_event_loop().time()
+
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.error("Library sync loop error: %s", exc)
+            await asyncio.sleep(60)
+
+
 _transcode_worker: TranscodeWorker | None = None
 _health_worker: HealthWorker | None = None
 _cloud_monitor: CloudMonitorWorker | None = None
 _auto_analyze_task: asyncio.Task | None = None
+_folder_watcher: FolderWatcherWorker | None = None
 
 
 async def start_scheduler():
-    global _transcode_worker, _health_worker, _cloud_monitor, _auto_analyze_task
+    global _transcode_worker, _health_worker, _cloud_monitor, _auto_analyze_task, _library_sync_task, _folder_watcher
 
     _transcode_worker = TranscodeWorker()
     _health_worker = HealthWorker(interval=30)
     _cloud_monitor = CloudMonitorWorker(interval=60)
+    _folder_watcher = FolderWatcherWorker()
 
     asyncio.create_task(_transcode_worker.start())
     asyncio.create_task(_health_worker.start())
     asyncio.create_task(_cloud_monitor.start())
     _auto_analyze_task = asyncio.create_task(_auto_analyze_loop())
-    logger.info("Scheduler started with TranscodeWorker, HealthWorker, CloudMonitorWorker, and AutoAnalyze")
+    _library_sync_task = asyncio.create_task(_library_sync_loop())
+    asyncio.create_task(_folder_watcher.start())
+    logger.info("Scheduler started with TranscodeWorker, HealthWorker, CloudMonitorWorker, AutoAnalyze, LibrarySyncLoop, and FolderWatcher")
 
 
 def get_transcode_worker():
@@ -159,4 +236,12 @@ async def stop_scheduler():
             await _auto_analyze_task
         except asyncio.CancelledError:
             pass
+    if _library_sync_task:
+        _library_sync_task.cancel()
+        try:
+            await _library_sync_task
+        except asyncio.CancelledError:
+            pass
+    if _folder_watcher:
+        await _folder_watcher.stop()
     logger.info("Scheduler stopped")

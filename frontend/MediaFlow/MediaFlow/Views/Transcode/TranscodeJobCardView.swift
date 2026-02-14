@@ -129,6 +129,26 @@ struct TranscodeJobCardView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 4))
                         }
 
+                        if job.retryCount > 0 {
+                            Text("RETRY \(job.retryCount)/\(job.maxRetries)")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.mfWarning)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.mfWarning.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                        }
+
+                        if let vs = job.validationStatus {
+                            Text(vs == "passed" ? "VALIDATED" : vs == "failed" ? "INVALID" : vs.uppercased())
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(vs == "passed" ? .mfSuccess : vs == "failed" ? .mfError : .mfTextMuted)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background((vs == "passed" ? Color.mfSuccess : vs == "failed" ? Color.mfError : Color.mfTextMuted).opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                        }
+
                         // Log toggle
                         if job.isActive || job.status == "transferring" || !logMessages.isEmpty {
                             Button {
@@ -142,6 +162,7 @@ struct TranscodeJobCardView: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 6))
                             }
                             .buttonStyle(.plain)
+                            .help("Toggle log")
                         }
 
                         if let onCancel = onCancel, (job.isActive || job.status == "queued" || job.status == "transferring") {
@@ -154,6 +175,7 @@ struct TranscodeJobCardView: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 6))
                             }
                             .buttonStyle(.plain)
+                            .help("Cancel job")
                         }
                     }
 

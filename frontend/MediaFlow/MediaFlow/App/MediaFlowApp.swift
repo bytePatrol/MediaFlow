@@ -42,5 +42,19 @@ struct MediaFlowApp: App {
             SettingsView()
                 .environmentObject(appState)
         }
+
+        MenuBarExtra {
+            MenuBarContentView()
+                .environmentObject(appState)
+                .environmentObject(transcodeViewModel)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "play.circle.fill")
+                if appState.activeJobCount > 0 {
+                    Text("\(appState.activeJobCount)")
+                }
+            }
+        }
+        .menuBarExtraStyle(.window)
     }
 }

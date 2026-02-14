@@ -4,7 +4,7 @@ import os
 import re
 import shlex
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 
 from sqlalchemy import select
@@ -1524,12 +1524,21 @@ class TranscodeWorker:
             # Verification failed — output file missing or corrupt
             logger.error(f"Job {job.id}: ffprobe verification failed for {probe_path}")
             job.status = "failed"
+            job.validation_status = "failed"
             job.ffmpeg_log = "\n".join(log_lines[-100:]) if log_lines else ""
             job.ffmpeg_log += "\n[mediaflow] ffprobe verification failed on output file"
             await session.commit()
             await manager.broadcast("job.failed", {
                 "job_id": job.id, "error": "Output verification failed"
             })
+            return
+
+        # Post-transcode quality validation
+        source_duration = (media.duration_ms / 1000) if media and media.duration_ms else None
+        validation_passed = await self._validate_output(job, probe_path, output_info, source_duration, session)
+        if not validation_passed:
+            job.ffmpeg_log = "\n".join(log_lines[-100:]) if log_lines else ""
+            await self._handle_failure(job, log_lines, session)
             return
 
         # Phase 6: In-place replacement of original file (skip for manual jobs)
@@ -1574,6 +1583,65 @@ class TranscodeWorker:
             "output_size": job.output_size,
             "duration": round(duration, 1),
         })
+
+    async def _validate_output(self, job: TranscodeJob, output_path: str,
+                               output_info, source_duration: Optional[float],
+                               session) -> bool:
+        """Validate the transcoded output file. Returns True if validation passes."""
+        try:
+            # Check 1: Output file must exist and be probed
+            if not output_info:
+                job.validation_status = "failed"
+                job.status_detail = "Validation failed: output file could not be probed"
+                logger.error(f"Job {job.id}: validation failed — no probe info")
+                await session.commit()
+                return False
+
+            # Check 2: Must have a valid video stream
+            has_video = getattr(output_info, 'video_codec', None) is not None
+            if not has_video:
+                job.validation_status = "failed"
+                job.status_detail = "Validation failed: no video stream in output"
+                logger.error(f"Job {job.id}: validation failed — no video stream")
+                await session.commit()
+                return False
+
+            # Check 3: File size must be > 1MB (catch corrupt/empty output)
+            output_size = getattr(output_info, 'size', 0) or 0
+            if output_size < 1_048_576:  # 1 MB
+                job.validation_status = "failed"
+                job.status_detail = f"Validation failed: output too small ({output_size} bytes)"
+                logger.error(f"Job {job.id}: validation failed — output only {output_size} bytes")
+                await session.commit()
+                return False
+
+            # Check 4: Duration matches source (within 2 second tolerance)
+            output_duration = getattr(output_info, 'duration', 0) or 0
+            if source_duration and source_duration > 0 and output_duration > 0:
+                duration_diff = abs(output_duration - source_duration)
+                if duration_diff > 2.0:
+                    job.validation_status = "failed"
+                    job.status_detail = (
+                        f"Validation failed: duration mismatch "
+                        f"(source={source_duration:.1f}s, output={output_duration:.1f}s, "
+                        f"diff={duration_diff:.1f}s)"
+                    )
+                    logger.error(f"Job {job.id}: validation failed — duration mismatch by {duration_diff:.1f}s")
+                    await session.commit()
+                    return False
+
+            # All checks passed
+            job.validation_status = "passed"
+            await session.commit()
+            logger.info(f"Job {job.id}: validation passed")
+            return True
+
+        except Exception as e:
+            logger.error(f"Job {job.id}: validation error: {e}")
+            job.validation_status = "failed"
+            job.status_detail = f"Validation error: {e}"
+            await session.commit()
+            return False
 
     async def _replace_original(self, job: TranscodeJob, media: Optional[MediaItem],
                                 output_path: str, session) -> None:
@@ -1670,3 +1738,22 @@ class TranscodeWorker:
             "job_id": job.id,
             "error": log_lines[-1] if log_lines else "Unknown error",
         })
+
+        # Auto-retry logic
+        if (job.retry_count or 0) < (job.max_retries or 3):
+            job.retry_count = (job.retry_count or 0) + 1
+            backoff_minutes = [1, 5, 15][min(job.retry_count - 1, 2)]
+            job.status = "queued"
+            job.scheduled_after = datetime.utcnow() + timedelta(minutes=backoff_minutes)
+            job.progress_percent = 0.0
+            job.current_fps = None
+            job.eta_seconds = None
+            job.worker_server_id = None
+            logger.info(f"Job {job.id} scheduled for retry #{job.retry_count} in {backoff_minutes}m")
+            await session.commit()
+            await manager.broadcast("job.retry_scheduled", {
+                "job_id": job.id,
+                "retry_count": job.retry_count,
+                "max_retries": job.max_retries or 3,
+                "backoff_minutes": backoff_minutes,
+            })

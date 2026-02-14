@@ -121,3 +121,60 @@ struct NotificationHistoryResponse: Codable {
     let items: [NotificationLogInfo]
     let total: Int
 }
+
+// MARK: - Sparkline
+
+struct SparklinePoint: Codable, Identifiable {
+    var id: String { date }
+    let date: String
+    let value: Int
+}
+
+// MARK: - Storage Timeline
+
+struct StorageTimelinePoint: Codable, Identifiable {
+    var id: String { date }
+    let date: String
+    let actualSize: Int
+    let withoutTranscoding: Int
+    let savings: Int
+}
+
+// MARK: - Webhook Sources
+
+struct WebhookSourceInfo: Codable, Identifiable {
+    let id: Int
+    let name: String
+    let sourceType: String
+    var secret: String?
+    var presetId: Int?
+    var isEnabled: Bool = true
+    var lastReceivedAt: String?
+    var eventsReceived: Int = 0
+}
+
+struct WebhookSourceCreateRequest: Codable {
+    let name: String
+    let sourceType: String
+    var presetId: Int?
+}
+
+// MARK: - Watch Folders
+
+struct WatchFolderInfo: Codable, Identifiable {
+    let id: Int
+    let path: String
+    var presetId: Int?
+    var extensions: String = "mkv,mp4,avi,mov,ts,m4v,wmv"
+    var delaySeconds: Int = 30
+    var isEnabled: Bool = true
+    var lastScanAt: String?
+    var filesProcessed: Int = 0
+}
+
+struct WatchFolderCreateRequest: Codable {
+    let path: String
+    var presetId: Int?
+    var extensions: String = "mkv,mp4,avi,mov,ts,m4v,wmv"
+    var delaySeconds: Int = 30
+}

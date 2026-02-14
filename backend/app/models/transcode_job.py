@@ -29,6 +29,9 @@ class TranscodeJob(Base):
     scheduled_after = Column(DateTime, nullable=True)
     status_detail = Column(String(500), nullable=True)
     source_prestaged = Column(Boolean, default=False)
+    retry_count = Column(Integer, default=0)
+    max_retries = Column(Integer, default=3)
+    validation_status = Column(String(20), nullable=True)  # pending, passed, failed, skipped
     is_dry_run = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

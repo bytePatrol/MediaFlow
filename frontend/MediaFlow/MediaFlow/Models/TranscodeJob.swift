@@ -24,6 +24,9 @@ struct TranscodeJob: Identifiable, Codable {
     var completedAt: String?
     var mediaTitle: String?
     var cloudCostUsd: Double?
+    var retryCount: Int = 0
+    var maxRetries: Int = 3
+    var validationStatus: String?
 
     var statusDisplayName: String {
         switch status {

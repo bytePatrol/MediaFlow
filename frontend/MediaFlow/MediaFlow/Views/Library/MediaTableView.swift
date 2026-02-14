@@ -16,6 +16,7 @@ struct MediaTableView: View {
                 }
                 .buttonStyle(.plain)
                 .frame(width: 32)
+                .help("Select all")
 
                 SortableHeader(title: "Media Title", field: "title", currentSort: viewModel.sortBy, ascending: viewModel.sortAscending) {
                     viewModel.toggleSort("title")
@@ -44,6 +45,7 @@ struct MediaTableView: View {
                         .foregroundColor(.mfTextMuted)
                 }
                 .buttonStyle(.plain)
+                .help("Choose columns")
                 .popover(isPresented: $showColumnPicker, arrowEdge: .bottom) {
                     ColumnPickerView(columnConfig: viewModel.columnConfig)
                 }

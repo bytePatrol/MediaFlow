@@ -419,6 +419,99 @@ class AnalyticsService:
             audio_pct=audio_pct, grade=grade,
         )
 
+    async def get_trend_sparkline(self, metric: str, days: int = 30) -> List[Dict[str, Any]]:
+        """Return daily data points for a sparkline chart."""
+        since = datetime.utcnow() - timedelta(days=days)
+
+        if metric == "storage_saved":
+            result = await self.session.execute(
+                select(
+                    func.date(JobLog.created_at).label("day"),
+                    func.sum(JobLog.source_size - JobLog.target_size).label("value"),
+                )
+                .where(JobLog.status == "completed", JobLog.target_size.isnot(None),
+                       JobLog.created_at >= since)
+                .group_by(func.date(JobLog.created_at))
+                .order_by(func.date(JobLog.created_at).asc())
+            )
+        elif metric == "jobs_completed":
+            result = await self.session.execute(
+                select(
+                    func.date(JobLog.created_at).label("day"),
+                    func.count().label("value"),
+                )
+                .where(JobLog.status == "completed", JobLog.created_at >= since)
+                .group_by(func.date(JobLog.created_at))
+                .order_by(func.date(JobLog.created_at).asc())
+            )
+        elif metric == "items_added":
+            result = await self.session.execute(
+                select(
+                    func.date(MediaItem.created_at).label("day"),
+                    func.count().label("value"),
+                )
+                .where(MediaItem.created_at >= since)
+                .group_by(func.date(MediaItem.created_at))
+                .order_by(func.date(MediaItem.created_at).asc())
+            )
+        else:
+            return []
+
+        rows = result.all()
+        cumulative = 0
+        points = []
+        for day, value in rows:
+            val = max(int(value or 0), 0)
+            cumulative += val
+            points.append({"date": str(day), "value": cumulative})
+        return points
+
+    async def get_storage_timeline(self, days: int = 90) -> List[Dict[str, Any]]:
+        """Return cumulative library size vs would-be size over time."""
+        since = datetime.utcnow() - timedelta(days=days)
+
+        # Get total library size as baseline
+        total_result = await self.session.execute(
+            select(func.sum(MediaItem.file_size))
+        )
+        current_total = total_result.scalar() or 0
+
+        # Get daily savings (cumulative)
+        result = await self.session.execute(
+            select(
+                func.date(JobLog.created_at).label("day"),
+                func.sum(JobLog.source_size - JobLog.target_size).label("day_savings"),
+            )
+            .where(JobLog.status == "completed", JobLog.target_size.isnot(None),
+                   JobLog.created_at >= since)
+            .group_by(func.date(JobLog.created_at))
+            .order_by(func.date(JobLog.created_at).asc())
+        )
+        rows = result.all()
+
+        # Total savings up to the start of our window
+        pre_result = await self.session.execute(
+            select(func.sum(JobLog.source_size - JobLog.target_size))
+            .where(JobLog.status == "completed", JobLog.target_size.isnot(None),
+                   JobLog.created_at < since)
+        )
+        pre_savings = max(int(pre_result.scalar() or 0), 0)
+
+        points = []
+        cumulative_savings = pre_savings
+        for day, day_savings in rows:
+            savings = max(int(day_savings or 0), 0)
+            cumulative_savings += savings
+            # actual_size = current library size
+            # without_transcoding = actual + all savings to date
+            points.append({
+                "date": str(day),
+                "actual_size": current_total,
+                "without_transcoding": current_total + cumulative_savings,
+                "savings": cumulative_savings,
+            })
+        return points
+
     async def get_top_opportunities(self) -> List[SavingsOpportunity]:
         """Top 10 largest untranscoded files with estimated savings."""
         # Get IDs of items that already have completed jobs

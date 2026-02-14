@@ -144,6 +144,7 @@ struct LibraryDashboardView: View {
                 .buttonStyle(.plain)
                 .foregroundColor(showFilterSidebar ? .mfPrimary : .mfTextMuted)
                 .hoverHighlight()
+                .help("Toggle filters")
 
                 // Filter presets
                 if !filterPresets.isEmpty {
@@ -222,6 +223,7 @@ struct LibraryDashboardView: View {
             }
             .buttonStyle(.plain)
             .foregroundColor(viewModel.viewMode == .list ? .white : .mfTextMuted)
+            .help("List view")
 
             Button {
                 viewModel.viewMode = .grid
@@ -234,6 +236,7 @@ struct LibraryDashboardView: View {
             }
             .buttonStyle(.plain)
             .foregroundColor(viewModel.viewMode == .grid ? .white : .mfTextMuted)
+            .help("Grid view")
         }
         .padding(2)
         .background(Color.mfSurface)

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
+    @State private var showCommandPalette = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -35,6 +36,7 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.mfBackground)
+                .animation(.easeInOut(duration: 0.15), value: appState.selectedNavItem)
             }
 
             // Global toast notifications
@@ -81,7 +83,20 @@ struct ContentView: View {
                 OnboardingView()
                     .transition(.opacity)
             }
+
+            // Command palette
+            if showCommandPalette {
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .onTapGesture { showCommandPalette = false }
+                    .transition(.opacity)
+
+                CommandPaletteView(isPresented: $showCommandPalette)
+                    .padding(.top, 80)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
         }
+        .animation(.easeOut(duration: 0.15), value: showCommandPalette)
         .background(
             Group {
                 Button("") { appState.selectedNavItem = .library }
@@ -110,6 +125,9 @@ struct ContentView: View {
                     .hidden()
                 Button("") { appState.selectedNavItem = .help }
                     .keyboardShortcut("9", modifiers: .command)
+                    .hidden()
+                Button("") { showCommandPalette.toggle() }
+                    .keyboardShortcut("k", modifiers: .command)
                     .hidden()
             }
         )

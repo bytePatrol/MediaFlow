@@ -31,6 +31,7 @@ async def init_database():
         transcode_job, worker_server, job_log, recommendation,
         custom_tag, notification_config, app_settings, filter_preset,
         server_benchmark, cloud_cost, notification_log,
+        webhook_source, watch_folder,
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -75,6 +76,10 @@ async def _run_migrations(conn):
         ("notification_configs", "trigger_count", "INTEGER DEFAULT 0"),
         # Pre-upload pipeline
         ("transcode_jobs", "source_prestaged", "BOOLEAN DEFAULT 0"),
+        # Auto-retry and validation
+        ("transcode_jobs", "retry_count", "INTEGER DEFAULT 0"),
+        ("transcode_jobs", "max_retries", "INTEGER DEFAULT 3"),
+        ("transcode_jobs", "validation_status", "VARCHAR(20)"),
     ]
     for table, column, col_type in migrations:
         try:

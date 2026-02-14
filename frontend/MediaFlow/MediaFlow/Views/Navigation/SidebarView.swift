@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SidebarView: View {
     @EnvironmentObject var appState: AppState
@@ -70,6 +71,26 @@ struct SidebarView: View {
             .padding(.vertical, 12)
         }
         .background(Color.mfSurface)
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            handleFileDrop(providers)
+            return true
+        }
+    }
+
+    private func handleFileDrop(_ providers: [NSItemProvider]) {
+        let videoExts: Set<String> = ["mkv", "mp4", "avi", "mov", "wmv", "ts", "m4v", "webm"]
+        for provider in providers {
+            provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
+                guard let data = item as? Data,
+                      let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                let ext = url.pathExtension.lowercased()
+                guard videoExts.contains(ext) else { return }
+                Task { @MainActor in
+                    appState.droppedFilePath = url.path
+                    appState.selectedNavItem = .quickTranscode
+                }
+            }
+        }
     }
 }
 

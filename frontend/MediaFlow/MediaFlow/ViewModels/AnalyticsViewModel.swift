@@ -15,6 +15,8 @@ class AnalyticsViewModel: ObservableObject {
     @Published var healthScore: HealthScoreResponse?
     @Published var topOpportunities: [SavingsOpportunity] = []
     @Published var cloudCosts: CloudCostSummary?
+    @Published var sparklines: [String: [SparklinePoint]] = [:]
+    @Published var storageTimeline: [StorageTimelinePoint] = []
     @Published var isLoading: Bool = false
     @Published var isExportingPDF: Bool = false
     @Published var errorMessage: String?
@@ -69,6 +71,10 @@ class AnalyticsViewModel: ObservableObject {
         // Cloud costs (optional, non-blocking)
         do { cloudCosts = try await service.getCloudCostSummary() } catch {}
 
+        // Sparklines and storage timeline
+        await loadSparklines()
+        await loadStorageTimeline()
+
         isLoading = false
     }
 
@@ -85,6 +91,23 @@ class AnalyticsViewModel: ObservableObject {
             let (t, h) = try await (trendsTask, historyTask)
             trends = t
             savingsHistory = h
+        } catch {}
+    }
+
+    func loadSparklines() async {
+        let metrics = ["storage_saved", "jobs_completed", "items_added"]
+        for metric in metrics {
+            do {
+                let points = try await service.getTrendSparkline(metric: metric, days: selectedTimeRange)
+                sparklines[metric] = points
+            } catch {}
+        }
+    }
+
+    func loadStorageTimeline() async {
+        do {
+            let points = try await service.getStorageTimeline(days: selectedTimeRange)
+            storageTimeline = points
         } catch {}
     }
 
