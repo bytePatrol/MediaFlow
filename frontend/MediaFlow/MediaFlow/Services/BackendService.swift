@@ -324,8 +324,10 @@ class BackendService {
         return try await client.post("/api/recommendations/analyze/\(libraryId)")
     }
 
-    func getRecommendationSummary() async throws -> RecommendationSummary {
-        return try await client.get("/api/recommendations/summary")
+    func getRecommendationSummary(libraryId: Int? = nil) async throws -> RecommendationSummary {
+        var items: [URLQueryItem] = []
+        if let libraryId = libraryId { items.append(URLQueryItem(name: "library_id", value: "\(libraryId)")) }
+        return try await client.get("/api/recommendations/summary", queryItems: items)
     }
 
     func batchQueueRecommendations(ids: [Int], presetId: Int? = nil) async throws -> BatchQueueResponse {

@@ -131,6 +131,8 @@ async def test_notification(config_id: int, session: AsyncSession = Depends(get_
         message = await NotificationService.test_slack(config_data)
     elif config.type == "telegram":
         message = await NotificationService.test_telegram(config_data)
+    elif config.type == "push":
+        message = await NotificationService.test_push(config_data)
     else:
         message = f"Test not supported for type: {config.type}"
 

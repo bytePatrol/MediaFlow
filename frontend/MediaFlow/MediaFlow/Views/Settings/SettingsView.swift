@@ -1178,6 +1178,7 @@ struct NotificationSettingsView: View {
     @State private var errorMessage: String = ""
     @State private var emailPanel = EmailConfigPanel()
     @State private var webhookPanel = WebhookConfigPanel()
+    @State private var pushPanel = PushConfigPanel()
     @State private var notificationHistory: [NotificationLogInfo] = []
     @State private var isLoadingHistory: Bool = true
     @State private var historyTotal: Int = 0
@@ -1272,6 +1273,21 @@ struct NotificationSettingsView: View {
                     .secondaryButton()
                 }
                 .buttonStyle(.plain)
+
+                if !configs.contains(where: { $0.type == "push" }) {
+                    Button {
+                        pushPanel.show { Task { await loadConfigs() } }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "bell.badge.fill")
+                                .font(.system(size: 11))
+                            Text("Add Push")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .secondaryButton()
+                    }
+                    .buttonStyle(.plain)
+                }
             }
 
             // Notification History
@@ -1371,6 +1387,8 @@ struct NotificationSettingsView: View {
             Button {
                 if config.type == "email" {
                     emailPanel.show(existingConfig: config) { Task { await loadConfigs() } }
+                } else if config.type == "push" {
+                    pushPanel.show(existingConfig: config) { Task { await loadConfigs() } }
                 } else {
                     webhookPanel.show(existingConfig: config, channelType: config.type) { Task { await loadConfigs() } }
                 }
@@ -1517,6 +1535,7 @@ struct NotificationSettingsView: View {
         case "slack": return "number.square.fill"
         case "telegram": return "paperplane.fill"
         case "webhook": return "link"
+        case "push": return "bell.badge.fill"
         default: return "bell.fill"
         }
     }

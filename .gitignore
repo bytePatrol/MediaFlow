@@ -58,6 +58,9 @@ frontend/MediaFlow/.build/
 *~
 .DS_Store
 
+# Dropbox sync conflicts
+*conflicted copy*
+
 # Logs
 *.log
 

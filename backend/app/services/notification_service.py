@@ -82,11 +82,36 @@ class NotificationService:
         elif config.type == "telegram":
             await self._send_telegram(config.config_json or {}, event, data)
         elif config.type == "push":
-            logger.info(f"Push notification: {event} - {data}")
+            await self._send_push(event, data)
         # Update trigger tracking
         from datetime import datetime as dt
         config.last_triggered_at = dt.utcnow()
         config.trigger_count = (config.trigger_count or 0) + 1
+
+    async def _send_push(self, event: str, data: Dict[str, Any]):
+        """Send push notification via WebSocket to the macOS app."""
+        from app.api.websocket import manager
+        title = self._format_subject(event, data)
+        body = self._format_plain_body(event, data)
+        await manager.broadcast("notification.push", {
+            "title": title,
+            "body": body,
+            "event": event,
+        })
+
+    @staticmethod
+    async def test_push(config: Dict[str, Any]) -> str:
+        """Send a test push notification via WebSocket."""
+        try:
+            from app.api.websocket import manager
+            await manager.broadcast("notification.push", {
+                "title": "[MediaFlow] Test Notification",
+                "body": "This is a test push notification from MediaFlow.",
+                "event": "test",
+            })
+            return "Test push notification sent successfully"
+        except Exception as e:
+            return f"Test push notification failed: {e}"
 
     async def _send_webhook(self, config: dict, event: str, data: Dict[str, Any]):
         import httpx

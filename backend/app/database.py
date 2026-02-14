@@ -80,6 +80,8 @@ async def _run_migrations(conn):
         ("transcode_jobs", "retry_count", "INTEGER DEFAULT 0"),
         ("transcode_jobs", "max_retries", "INTEGER DEFAULT 3"),
         ("transcode_jobs", "validation_status", "VARCHAR(20)"),
+        # Per-library analysis tracking
+        ("analysis_runs", "library_id", "INTEGER REFERENCES plex_libraries(id)"),
     ]
     for table, column, col_type in migrations:
         try:

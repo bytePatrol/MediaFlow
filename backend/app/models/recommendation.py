@@ -13,6 +13,7 @@ class AnalysisRun(Base):
     recommendations_generated = Column(Integer, default=0)
     total_estimated_savings = Column(BigInteger, default=0)
     trigger = Column(String(20), default="manual")  # manual, auto, scheduled
+    library_id = Column(Integer, ForeignKey("plex_libraries.id"), nullable=True)
 
     recommendations = relationship("Recommendation", back_populates="analysis_run")
 

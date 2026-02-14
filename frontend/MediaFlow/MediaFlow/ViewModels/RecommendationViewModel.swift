@@ -45,7 +45,7 @@ class RecommendationViewModel: ObservableObject {
         isLoading = true
         do {
             async let recsReq = service.getRecommendations(type: selectedType, libraryId: selectedLibraryId)
-            async let summaryReq = service.getRecommendationSummary()
+            async let summaryReq = service.getRecommendationSummary(libraryId: selectedLibraryId)
             async let historyReq = service.getAnalysisHistory(limit: 10)
             async let savingsReq = service.getSavingsAchieved()
             async let sectionsReq = service.getLibrarySections()

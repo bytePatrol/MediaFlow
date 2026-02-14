@@ -160,6 +160,20 @@ struct RecommendationsView: View {
                                 .background(Color.mfSurface)
                                 .clipShape(Capsule())
 
+                            if let libTitle = run.libraryTitle {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "building.columns")
+                                        .font(.system(size: 8))
+                                    Text(libTitle)
+                                        .font(.system(size: 9, weight: .medium))
+                                }
+                                .foregroundColor(.mfPrimary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.mfPrimary.opacity(0.1))
+                                .clipShape(Capsule())
+                            }
+
                             Spacer()
                         }
                     }
@@ -242,13 +256,24 @@ struct RecommendationsView: View {
                     }
 
                     if viewModel.recommendations.isEmpty && !viewModel.isLoading {
-                        EmptyStateView(
-                            icon: "lightbulb",
-                            title: "No recommendations yet",
-                            description: "Run analysis to generate optimization recommendations for your library.",
-                            actionTitle: "Run Analysis",
-                            action: { Task { await viewModel.runAnalysis() } }
-                        )
+                        if let libId = viewModel.selectedLibraryId,
+                           let section = viewModel.librarySections.first(where: { $0.id == libId }) {
+                            EmptyStateView(
+                                icon: "lightbulb",
+                                title: "No recommendations for \(section.title)",
+                                description: "Run analysis to generate optimization recommendations for this library.",
+                                actionTitle: "Analyze Library",
+                                action: { Task { await viewModel.runAnalysis() } }
+                            )
+                        } else {
+                            EmptyStateView(
+                                icon: "lightbulb",
+                                title: "No recommendations yet",
+                                description: "Run analysis to generate optimization recommendations for your library.",
+                                actionTitle: "Run Analysis",
+                                action: { Task { await viewModel.runAnalysis() } }
+                            )
+                        }
                     }
                 }
                 .padding(24)

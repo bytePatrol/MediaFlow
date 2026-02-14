@@ -26,9 +26,12 @@ async def list_recommendations(
 
 
 @router.get("/summary", response_model=RecommendationSummary)
-async def get_recommendation_summary(session: AsyncSession = Depends(get_session)):
+async def get_recommendation_summary(
+    library_id: Optional[int] = None,
+    session: AsyncSession = Depends(get_session),
+):
     service = RecommendationService(session)
-    return await service.get_summary()
+    return await service.get_summary(library_id=library_id)
 
 
 @router.get("/history")

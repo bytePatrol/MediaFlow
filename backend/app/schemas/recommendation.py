@@ -45,6 +45,8 @@ class AnalysisRunResponse(BaseModel):
     recommendations_generated: int = 0
     total_estimated_savings: int = 0
     trigger: str = "manual"
+    library_id: Optional[int] = None
+    library_title: Optional[str] = None
 
 
 class SavingsCodecEntry(BaseModel):

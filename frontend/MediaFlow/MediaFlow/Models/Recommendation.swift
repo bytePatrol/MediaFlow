@@ -80,6 +80,8 @@ struct AnalysisRunInfo: Codable, Identifiable {
     var recommendationsGenerated: Int = 0
     var totalEstimatedSavings: Int = 0
     var trigger: String = "manual"
+    var libraryId: Int?
+    var libraryTitle: String?
 }
 
 struct SavingsCodecEntry: Codable {

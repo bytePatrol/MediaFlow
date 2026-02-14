@@ -89,33 +89,55 @@ class RecommendationService:
             responses.append(resp)
         return responses
 
-    async def get_summary(self) -> RecommendationSummary:
-        total_result = await self.session.execute(
-            select(func.count()).select_from(Recommendation)
-        )
+    async def get_summary(self, library_id: Optional[int] = None) -> RecommendationSummary:
+        if library_id is not None:
+            total_result = await self.session.execute(
+                select(func.count()).select_from(Recommendation)
+                .join(MediaItem, Recommendation.media_item_id == MediaItem.id)
+                .where(MediaItem.plex_library_id == library_id)
+            )
+        else:
+            total_result = await self.session.execute(
+                select(func.count()).select_from(Recommendation)
+            )
         total = total_result.scalar() or 0
 
-        type_result = await self.session.execute(
-            select(Recommendation.type, func.count()).group_by(Recommendation.type)
-        )
+        type_query = select(Recommendation.type, func.count()).group_by(Recommendation.type)
+        if library_id is not None:
+            type_query = type_query.join(MediaItem, Recommendation.media_item_id == MediaItem.id).where(
+                MediaItem.plex_library_id == library_id
+            )
+        type_result = await self.session.execute(type_query)
         by_type = {t: c for t, c in type_result.all()}
 
-        savings_result = await self.session.execute(
-            select(func.sum(Recommendation.estimated_savings))
-            .where(Recommendation.is_dismissed == False)  # noqa: E712
+        savings_query = select(func.sum(Recommendation.estimated_savings)).where(
+            Recommendation.is_dismissed == False  # noqa: E712
         )
+        if library_id is not None:
+            savings_query = savings_query.join(MediaItem, Recommendation.media_item_id == MediaItem.id).where(
+                MediaItem.plex_library_id == library_id
+            )
+        savings_result = await self.session.execute(savings_query)
         total_savings = savings_result.scalar() or 0
 
-        dismissed_result = await self.session.execute(
-            select(func.count()).select_from(Recommendation)
-            .where(Recommendation.is_dismissed == True)  # noqa: E712
+        dismissed_query = select(func.count()).select_from(Recommendation).where(
+            Recommendation.is_dismissed == True  # noqa: E712
         )
+        if library_id is not None:
+            dismissed_query = dismissed_query.join(MediaItem, Recommendation.media_item_id == MediaItem.id).where(
+                MediaItem.plex_library_id == library_id
+            )
+        dismissed_result = await self.session.execute(dismissed_query)
         dismissed = dismissed_result.scalar() or 0
 
-        actioned_result = await self.session.execute(
-            select(func.count()).select_from(Recommendation)
-            .where(Recommendation.is_actioned == True)  # noqa: E712
+        actioned_query = select(func.count()).select_from(Recommendation).where(
+            Recommendation.is_actioned == True  # noqa: E712
         )
+        if library_id is not None:
+            actioned_query = actioned_query.join(MediaItem, Recommendation.media_item_id == MediaItem.id).where(
+                MediaItem.plex_library_id == library_id
+            )
+        actioned_result = await self.session.execute(actioned_query)
         actioned = actioned_result.scalar() or 0
 
         return RecommendationSummary(
@@ -207,7 +229,7 @@ class RecommendationService:
     async def run_library_analysis(self, library_id: int, trigger: str = "manual") -> Dict[str, Any]:
         """Run all analyzers scoped to a single library and return an analysis run summary."""
         # Create analysis run record
-        run = AnalysisRun(trigger=trigger)
+        run = AnalysisRun(trigger=trigger, library_id=library_id)
         self.session.add(run)
         await self.session.flush()
 
@@ -296,10 +318,14 @@ class RecommendationService:
         }
 
     async def get_analysis_history(self, limit: int = 20) -> List[Dict[str, Any]]:
+        from app.models.plex_library import PlexLibrary
         result = await self.session.execute(
-            select(AnalysisRun).order_by(AnalysisRun.id.desc()).limit(limit)
+            select(AnalysisRun, PlexLibrary.title)
+            .outerjoin(PlexLibrary, AnalysisRun.library_id == PlexLibrary.id)
+            .order_by(AnalysisRun.id.desc())
+            .limit(limit)
         )
-        runs = result.scalars().all()
+        rows = result.all()
         return [
             {
                 "id": r.id,
@@ -309,8 +335,10 @@ class RecommendationService:
                 "recommendations_generated": r.recommendations_generated,
                 "total_estimated_savings": r.total_estimated_savings,
                 "trigger": r.trigger,
+                "library_id": r.library_id,
+                "library_title": lib_title,
             }
-            for r in runs
+            for r, lib_title in rows
         ]
 
     async def get_savings_achieved(self) -> Dict[str, Any]:
