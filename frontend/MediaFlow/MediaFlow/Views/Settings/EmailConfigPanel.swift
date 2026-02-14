@@ -65,8 +65,8 @@ struct EmailConfigPanelContent: View {
     @State private var fromAddress: String = ""
     @State private var toAddress: String = ""
     @State private var useTls: Bool = true
-    @State private var jobCompleted: Bool = true
-    @State private var jobFailed: Bool = true
+    @State private var availableEvents: [NotificationEventInfo] = []
+    @State private var enabledEvents: Set<String> = ["job.completed", "job.failed"]
     @State private var isSaving: Bool = false
     @State private var isTesting: Bool = false
     @State private var errorMessage: String = ""
@@ -138,10 +138,30 @@ struct EmailConfigPanelContent: View {
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("EVENTS").font(.system(size: 10, weight: .bold)).foregroundColor(.mfTextMuted).tracking(0.5)
-                        Toggle("Job Completed", isOn: $jobCompleted)
-                            .toggleStyle(.checkbox)
-                        Toggle("Job Failed", isOn: $jobFailed)
-                            .toggleStyle(.checkbox)
+                        if availableEvents.isEmpty {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            ForEach(availableEvents) { event in
+                                Toggle(isOn: Binding(
+                                    get: { enabledEvents.contains(event.event) },
+                                    set: { enabled in
+                                        if enabled { enabledEvents.insert(event.event) }
+                                        else { enabledEvents.remove(event.event) }
+                                    }
+                                )) {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(formatEventName(event.event))
+                                            .font(.system(size: 12, weight: .medium))
+                                        Text(event.description)
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.mfTextMuted)
+                                    }
+                                }
+                                .toggleStyle(.checkbox)
+                            }
+                        }
                     }
 
                     if !errorMessage.isEmpty {
@@ -211,6 +231,7 @@ struct EmailConfigPanelContent: View {
         .background(Color.mfBackground)
         .preferredColorScheme(.dark)
         .onAppear { loadExisting() }
+        .task { await loadEvents() }
     }
 
     private var isValid: Bool {
@@ -238,9 +259,26 @@ struct EmailConfigPanelContent: View {
         fromAddress = json["from_address"]?.value as? String ?? ""
         toAddress = json["to_address"]?.value as? String ?? ""
         useTls = json["use_tls"]?.value as? Bool ?? true
-        let events = config.events ?? []
-        jobCompleted = events.contains("job.completed")
-        jobFailed = events.contains("job.failed")
+        if let events = config.events, !events.isEmpty {
+            enabledEvents = Set(events)
+        }
+    }
+
+    private func loadEvents() async {
+        do {
+            availableEvents = try await service.getNotificationEvents()
+        } catch {
+            availableEvents = [
+                NotificationEventInfo(event: "job.completed", description: "When a transcode job finishes successfully"),
+                NotificationEventInfo(event: "job.failed", description: "When a transcode job fails"),
+            ]
+        }
+    }
+
+    private func formatEventName(_ event: String) -> String {
+        event.replacingOccurrences(of: ".", with: " ").split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
     }
 
     private var configDict: [String: AnyCodable] {
@@ -256,10 +294,7 @@ struct EmailConfigPanelContent: View {
     }
 
     private var selectedEvents: [String] {
-        var events: [String] = []
-        if jobCompleted { events.append("job.completed") }
-        if jobFailed { events.append("job.failed") }
-        return events
+        Array(enabledEvents)
     }
 
     private func save() async {

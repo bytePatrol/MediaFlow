@@ -118,7 +118,7 @@ chmod +x run.sh
 - [x] Real-time server metrics via WebSocket
 - [x] **Cloud GPU on-demand transcoding (Vultr A16/A40)** ← NEW
 
-### Phase 5: Advanced Features — 90% COMPLETE
+### Phase 5: Advanced Features — COMPLETE
 - [x] Analytics dashboard (overview, storage savings, codec/resolution charts)
 - [x] Job history with per-file stats
 - [x] Cost tracking for cloud VPS workers
@@ -127,18 +127,18 @@ chmod +x run.sh
 - [x] Logs view with filtering and export
 - [x] System diagnostics endpoint
 - [x] **Cloud cost analytics card with spend tracking**
-- [x] **Trends & predictions** — week-over-week KPI trends + savings forecast (30/90/365d) ← NEW
-- [x] **Library health score** — weighted 0-100 score (codec 40%, bitrate 30%, container 15%, audio 15%) with letter grade ← NEW
-- [x] **Server performance metrics** — per-worker stats (FPS, compression, failure rate, cloud badge) ← NEW
-- [x] **Top savings opportunities** — ranked list of untranscoded files with estimated savings ← NEW
-- [x] **Time range filtering** — 7d/30d/90d/1y on analytics dashboard ← NEW
-- [x] **Resolution distribution chart** — bar chart (was loaded but never displayed, now shown) ← NEW
-- [x] **Filter presets CRUD** — save/load/delete filter presets in library view ← NEW
-- [ ] **Custom tagging system** (backend model exists, frontend UI pending)
-- [ ] **Batch metadata editing** (backend ready, frontend pending)
-- [ ] **Collection builder** (backend ready, frontend pending)
+- [x] **Trends & predictions** — week-over-week KPI trends + savings forecast (30/90/365d)
+- [x] **Library health score** — weighted 0-100 score (codec 40%, bitrate 30%, container 15%, audio 15%) with letter grade
+- [x] **Server performance metrics** — per-worker stats (FPS, compression, failure rate, cloud badge)
+- [x] **Top savings opportunities** — ranked list of untranscoded files with estimated savings
+- [x] **Time range filtering** — 7d/30d/90d/1y on analytics dashboard
+- [x] **Resolution distribution chart** — bar chart
+- [x] **Filter presets CRUD** — save/load/delete filter presets in library view
+- [x] **Custom tagging system** — full CRUD, bulk apply/remove, filter sidebar integration, ManageTagsSheet, tag pills in rows
+- [x] **Collection builder** — CollectionBuilderPanel (NSPanel), create/add-to-existing flow
+- [N/A] **Batch metadata editing** — covered by tags + collections; Plex metadata (titles, genres) should be edited in Plex directly
 
-### Phase 6: Polish & Integration — 90% COMPLETE
+### Phase 6: Polish & Integration — 95% COMPLETE
 - [x] WebSocket notifications for all events
 - [x] Active jobs dock (floating job progress)
 - [x] Quality badges with color coding
@@ -720,9 +720,7 @@ Major performance session: pre-upload pipeline, parallel multi-stream transfers,
 
 ## Known Issues & Tech Debt
 
-1. **SettingsView.swift:187** — Uses deprecated `onChange(of:perform:)` API. Should update to zero-parameter closure variant for macOS 14+.
-
-2. **NSPanel workaround** — macOS SPM apps have broken keyboard focus in `.sheet()` modals. AddServerSheet, SettingsView SSH form, CloudDeployPanel, and CloudAPIKeyPanel use NSPanel with NSHostingView as a workaround. Requirements: `.nonactivatingPanel` in styleMask, `becomesKeyOnlyIfNeeded = false`, `NSApp.activate(ignoringOtherApps: true)`.
+1. **NSPanel workaround** — macOS SPM apps have broken keyboard focus in `.sheet()` modals. AddServerSheet, SettingsView SSH form, CloudDeployPanel, and CloudAPIKeyPanel use NSPanel with NSHostingView as a workaround. Requirements: `.nonactivatingPanel` in styleMask, `becomesKeyOnlyIfNeeded = false`, `NSApp.activate(ignoringOtherApps: true)`.
 
 3. **CodingKeys + convertFromSnakeCase** — APIClient uses automatic snake_case conversion. Never add explicit CodingKeys with snake_case raw values or it double-converts (causes keyNotFound errors).
 
@@ -773,32 +771,14 @@ asyncssh>=2.14.0
 
 ## What to Work On Next
 
-### Immediate (resume here)
-1. **Verify CUDA hardware decode works** — Latest fix: `_maybe_upgrade_to_nvenc()` now sets `hw_accel="nvenc"` even when codec is already NVENC (e.g., `h264_nvenc`). Need to confirm `-hwaccel cuda` appears in ffmpeg command and gives significant FPS boost over CPU decode. Test by queuing a Quick Transcode job on cloud GPU.
-2. **Test pre-upload pipeline end-to-end** — Queue 2+ jobs targeting same cloud GPU worker. Verify: first job uploads normally, during transcode the second job's source pre-uploads, second job skips upload and starts transcoding immediately.
-3. **Verify parallel SSH download with progress** — Download now passes `total_size`, so parallel SSH should be used for large outputs. Check download speed and progress reporting.
+### Verification (resume here)
+1. **Verify CUDA hardware decode works** — `_maybe_upgrade_to_nvenc()` sets `hw_accel="nvenc"` for cloud workers. Confirm `-hwaccel cuda` in ffmpeg command and FPS boost over CPU decode.
+2. **Test pre-upload pipeline end-to-end** — Queue 2+ jobs targeting same cloud GPU worker. Verify source pre-staging skips upload for second job.
+3. **Verify parallel SSH download with progress** — Download now passes `total_size`, so parallel SSH should be used for large outputs.
 
-### Previously Completed
-- ~~Test full cloud transcode cycle~~ — **DONE** (2026-02-11). End-to-end working at 561 FPS with NVENC.
-- ~~Path mappings UI~~ — **DONE** (2026-02-12).
-- ~~Bulk transcode from library~~ — **DONE** (2026-02-12).
-- ~~Cloud worker auto-deploy~~ — **DONE** (2026-02-12).
-- ~~Manual Transcode / Quick Transcode~~ — **DONE** (2026-02-12).
-- ~~Intelligence system improvements (8x)~~ — **DONE** (2026-02-12). Learned ratios, priority scoring, auto-analyze, configurable thresholds, audio/container/HDR/batch analyzers, analysis run tracking.
-- ~~Premium Polish (analytics, UX, notifications)~~ — **DONE** (2026-02-13). 9-section analytics dashboard, 5 notification channels, onboarding wizard, keyboard shortcuts, context menus, filter presets, destructive action confirmations.
-- ~~Pre-upload pipeline~~ — **DONE** (2026-02-13). Source pre-staging, parallel SSH transfers, subtitle fix, NVENC fallback system. Needs end-to-end verification.
-
-### Medium Priority
-1. **Custom tagging system frontend** — Backend model (CustomTag, MediaTag) exists. Need UI for creating tags, applying to media items, filtering by tags.
-2. **Batch metadata editing UI** — Need modal for bulk-updating titles, genres, collections on selected media items.
-3. **Collection builder UI** — Auto-create Plex collections from filter criteria (e.g., "All Dolby Atmos Movies").
-4. **SettingsView deprecation fix** — Update `onChange(of:perform:)` to new zero-parameter closure variant for macOS 14+.
-5. **Apply hover modifiers** — `.hoverHighlight()` / `.hoverCard()` modifiers exist but haven't been applied to sidebar buttons, server cards, recommendation cards, filter pills, analytics KPI cards.
-
-### Low Priority
-6. **PDF health reports** — Export library analysis as PDF.
-7. **Scheduling UI** — Configure transcode processing hours (e.g., overnight only).
-8. **App icon** — Currently using default Xcode icon.
-9. **macOS push notifications** — System notification center integration.
-10. **Intelligence enhancements** — Per-library analysis, schedule-based auto-analysis, recommendation grouping in UI.
-11. **Notification history view** — Show last 10 triggered notifications with timestamp, event, channel, status in Settings.
+### Future Enhancements
+1. **PDF health reports** — Export library analysis as PDF.
+2. **Scheduling UI** — Configure transcode processing hours (e.g., overnight only).
+3. **App icon** — Currently using default Xcode icon.
+4. **macOS push notifications** — System notification center integration (works in Xcode builds; SPM builds gracefully skip).
+5. **Intelligence enhancements** — Per-library analysis, schedule-based auto-analysis, recommendation grouping in UI.

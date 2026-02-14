@@ -281,6 +281,7 @@ struct AnalyticsDashboardView: View {
         }
         .padding(20)
         .cardStyle()
+        .hoverCard()
     }
 
     private func forecastItem(label: String, value: String) -> some View {
@@ -325,6 +326,7 @@ struct AnalyticsDashboardView: View {
         }
         .padding(20)
         .cardStyle()
+        .hoverCard()
     }
 
     private var codecChart: some View {
@@ -351,6 +353,7 @@ struct AnalyticsDashboardView: View {
         }
         .padding(20)
         .cardStyle()
+        .hoverCard()
     }
 
     // MARK: - Resolution Distribution
@@ -373,6 +376,7 @@ struct AnalyticsDashboardView: View {
         }
         .padding(20)
         .cardStyle()
+        .hoverCard()
     }
 
     // MARK: - Server Performance Table
@@ -435,6 +439,7 @@ struct AnalyticsDashboardView: View {
         }
         .padding(20)
         .cardStyle()
+        .hoverCard()
     }
 
     // MARK: - Top Savings Opportunities
@@ -480,6 +485,7 @@ struct AnalyticsDashboardView: View {
         }
         .padding(20)
         .cardStyle()
+        .hoverCard()
     }
 
     // MARK: - Cloud Costs Card
@@ -539,5 +545,6 @@ struct AnalyticsDashboardView: View {
         }
         .padding(20)
         .cardStyle()
+        .hoverCard()
     }
 }
