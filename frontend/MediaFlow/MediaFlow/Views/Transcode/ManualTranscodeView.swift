@@ -305,29 +305,97 @@ struct QuickTranscodePageView: View {
                 }
             }
 
-            // Bitrate slider
+            // Quality control with bitrate mode toggle
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("QUALITY (CRF)")
+                    Text("QUALITY")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(.mfTextMuted)
                         .tracking(1)
                     Spacer()
-                    Text("\(Int(crfValue))")
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.mfTextPrimary)
+                    Picker("", selection: $bitrateMode) {
+                        Text("CRF").tag("crf")
+                        Text("Bitrate").tag("vbr")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 140)
+                    .onChange(of: bitrateMode) {
+                        selectedPreset = nil
+                    }
                 }
-                Slider(value: $crfValue, in: 15...35, step: 1)
-                    .tint(.mfPrimary)
-                HStack {
-                    Text("Higher quality")
-                        .font(.system(size: 9))
-                        .foregroundColor(.mfTextMuted)
+
+                if bitrateMode == "crf" {
+                    HStack {
+                        Slider(value: $crfValue, in: 15...35, step: 1)
+                            .tint(.mfPrimary)
+                        Text("\(Int(crfValue))")
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.mfTextPrimary)
+                            .frame(width: 28, alignment: .trailing)
+                    }
+                    HStack {
+                        Text("Higher quality")
+                            .font(.system(size: 9))
+                            .foregroundColor(.mfTextMuted)
+                        Spacer()
+                        Text("Smaller file")
+                            .font(.system(size: 9))
+                            .foregroundColor(.mfTextMuted)
+                    }
+                } else {
+                    HStack {
+                        Slider(value: $targetBitrateMbps, in: 1...50, step: 0.5)
+                            .tint(.mfPrimary)
+                        Text(String(format: "%.1f Mbps", targetBitrateMbps))
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.mfTextPrimary)
+                            .frame(width: 75, alignment: .trailing)
+                    }
+                    HStack {
+                        Text("Lower bitrate")
+                            .font(.system(size: 9))
+                            .foregroundColor(.mfTextMuted)
+                        Spacer()
+                        Text("Higher bitrate")
+                            .font(.system(size: 9))
+                            .foregroundColor(.mfTextMuted)
+                    }
+                }
+            }
+
+            // Estimated output size
+            if probeResult != nil, let sizeText = estimatedSizeText {
+                HStack(spacing: 12) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.zipper")
+                            .font(.system(size: 11))
+                            .foregroundColor(.mfTextMuted)
+                        Text("EST. OUTPUT")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.mfTextMuted)
+                            .tracking(1)
+                    }
+
+                    Text(sizeText)
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.mfPrimary)
+
+                    if let reduction = estimatedReductionText {
+                        Text(reduction)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(reduction.contains("smaller") ? .mfSuccess : .mfWarning)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background((reduction.contains("smaller") ? Color.mfSuccess : Color.mfWarning).opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
+
                     Spacer()
-                    Text("Smaller file")
-                        .font(.system(size: 9))
-                        .foregroundColor(.mfTextMuted)
                 }
+                .padding(10)
+                .background(Color.mfGlass)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.mfGlassBorder, lineWidth: 1))
             }
 
             // Server picker + Start button row
@@ -446,6 +514,98 @@ struct QuickTranscodePageView: View {
         return codec
     }
 
+    // MARK: - Size Estimation
+
+    private var estimatedOutputBytes: Int? {
+        guard let probe = probeResult, probe.durationSeconds > 0 else { return nil }
+
+        if bitrateMode != "crf" {
+            // Bitrate mode: precise calculation
+            let videoBits = targetBitrateMbps * 1_000_000 * probe.durationSeconds
+            let audioBits = 128_000.0 * probe.durationSeconds
+            return Int((videoBits + audioBits) / 8)
+        } else {
+            // CRF mode: heuristic estimation
+            guard let sourceBitrate = probe.bitrate, sourceBitrate > 0 else { return nil }
+            let codecRatio = codecEfficiencyRatio(source: probe.videoCodec, target: videoCodec)
+            let crfScale = crfScaleFactor(crf: crfValue)
+            let resScale = resolutionScaleFactor(sourceResolution: probe.resolution)
+            let estimatedBitrate = Double(sourceBitrate) * codecRatio * crfScale * resScale
+            let totalBits = estimatedBitrate * probe.durationSeconds
+            let audioBits = 128_000.0 * probe.durationSeconds
+            return Int((totalBits + audioBits) / 8)
+        }
+    }
+
+    private func codecEfficiencyRatio(source: String?, target: String) -> Double {
+        let src = (source ?? "").lowercased()
+        let isSourceH264 = src.contains("h264") || src.contains("264") || src.contains("avc")
+        let isSourceHEVC = src.contains("hevc") || src.contains("h265") || src.contains("265")
+
+        switch target {
+        case "libx265":
+            return isSourceH264 ? 0.65 : isSourceHEVC ? 0.85 : 0.70
+        case "libsvtav1":
+            return isSourceH264 ? 0.55 : isSourceHEVC ? 0.75 : 0.60
+        case "libx264":
+            return isSourceH264 ? 0.85 : 0.90
+        default:
+            return 0.85
+        }
+    }
+
+    private func crfScaleFactor(crf: Double) -> Double {
+        // Exponential curve: CRF 23 = 1.0, lower CRF = larger file, higher = smaller
+        // Each CRF point ≈ 12% size change
+        return pow(1.12, crf - 23)
+    }
+
+    private func resolutionScaleFactor(sourceResolution: String?) -> Double {
+        guard targetResolution != "source" else { return 1.0 }
+        guard let source = sourceResolution else { return 1.0 }
+        let sourcePixels = pixelCount(from: source)
+        let targetPixels = pixelCountForTarget(targetResolution)
+        guard sourcePixels > 0, targetPixels > 0 else { return 1.0 }
+        if targetPixels >= sourcePixels { return 1.0 }
+        return Double(targetPixels) / Double(sourcePixels)
+    }
+
+    private func pixelCount(from resolution: String) -> Int {
+        let parts = resolution.lowercased().split(separator: "x")
+        guard parts.count == 2,
+              let w = Int(parts[0]),
+              let h = Int(parts[1]) else { return 0 }
+        return w * h
+    }
+
+    private func pixelCountForTarget(_ target: String) -> Int {
+        switch target {
+        case "4K": return 3840 * 2160
+        case "1080p": return 1920 * 1080
+        case "720p": return 1280 * 720
+        case "SD": return 720 * 480
+        default: return 0
+        }
+    }
+
+    private var estimatedSizeText: String? {
+        guard let bytes = estimatedOutputBytes, bytes > 0 else { return nil }
+        let gb = Double(bytes) / 1_073_741_824
+        if gb >= 1 { return String(format: "~%.1f GB", gb) }
+        let mb = Double(bytes) / 1_048_576
+        return String(format: "~%.0f MB", mb)
+    }
+
+    private var estimatedReductionText: String? {
+        guard let bytes = estimatedOutputBytes, let probe = probeResult, probe.fileSize > 0 else { return nil }
+        let reduction = 1.0 - (Double(bytes) / Double(probe.fileSize))
+        if reduction > 0 {
+            return String(format: "%.0f%% smaller", reduction * 100)
+        } else {
+            return String(format: "%.0f%% larger", abs(reduction) * 100)
+        }
+    }
+
     // MARK: - Actions
 
     private func openFilePicker() {
@@ -533,9 +693,13 @@ struct QuickTranscodePageView: View {
             "video_codec": AnyCodable(videoCodec),
             "container": AnyCodable(container),
             "bitrate_mode": AnyCodable(bitrateMode),
-            "crf_value": AnyCodable(Int(crfValue)),
             "audio_mode": AnyCodable(audioMode),
         ]
+        if bitrateMode == "crf" {
+            config["crf_value"] = AnyCodable(Int(crfValue))
+        } else {
+            config["target_bitrate"] = AnyCodable("\(Int(targetBitrateMbps))M")
+        }
         if targetResolution != "source" {
             config["target_resolution"] = AnyCodable(targetResolution)
         }

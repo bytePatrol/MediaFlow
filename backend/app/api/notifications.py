@@ -1,16 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from typing import List
 
 from app.database import get_session
 from app.models.notification_config import NotificationConfig
+from app.models.notification_log import NotificationLog
 from app.schemas.notification import (
     NotificationConfigCreate,
     NotificationConfigUpdate,
     NotificationConfigResponse,
     NOTIFICATION_EVENTS,
     NotificationEventInfo,
+    NotificationHistoryResponse,
+    NotificationLogResponse,
 )
 from app.services.notification_service import NotificationService
 
@@ -20,6 +23,31 @@ router = APIRouter()
 @router.get("/events")
 async def list_notification_events():
     return [NotificationEventInfo(event=k, description=v) for k, v in NOTIFICATION_EVENTS.items()]
+
+
+@router.get("/history", response_model=NotificationHistoryResponse)
+async def get_notification_history(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+):
+    # Get total count
+    count_result = await session.execute(select(func.count(NotificationLog.id)))
+    total = count_result.scalar() or 0
+
+    # Get paginated items
+    result = await session.execute(
+        select(NotificationLog)
+        .order_by(NotificationLog.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    items = result.scalars().all()
+
+    return NotificationHistoryResponse(
+        items=[NotificationLogResponse.model_validate(item) for item in items],
+        total=total,
+    )
 
 
 @router.get("/", response_model=List[NotificationConfigResponse])

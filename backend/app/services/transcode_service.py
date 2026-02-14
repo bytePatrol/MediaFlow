@@ -136,20 +136,27 @@ class TranscodeService:
 
         video_codec = config.get("video_codec", "libx265")
         nvenc_codec = self.NVENC_CODEC_MAP.get(video_codec)
-        if not nvenc_codec:
+        is_already_nvenc = video_codec.endswith("_nvenc")
+
+        if not nvenc_codec and not is_already_nvenc:
             return config
 
         # Copy config to avoid mutating the original across loop iterations
         config = {**config}
-        logger.info(
-            "Auto-upgrading codec %s → %s for worker %s (GPU detected)",
-            video_codec, nvenc_codec, worker.name,
-        )
-        config["video_codec"] = nvenc_codec
-        # Don't set hw_accel — let ffmpeg decode on CPU and only use GPU for
-        # encoding.  CUDA hw decoding is an optimization that fails hard when
-        # the driver is broken, whereas the NVENC encoder alone still works.
-        # Users who want full CUDA decode can set hw_accel="nvenc" in a preset.
+        if nvenc_codec:
+            logger.info(
+                "Auto-upgrading codec %s → %s for worker %s (GPU detected)",
+                video_codec, nvenc_codec, worker.name,
+            )
+            config["video_codec"] = nvenc_codec
+
+        # Enable CUDA hardware decode for cloud GPU workers to offload decode+scale
+        # from CPU to GPU.  Jellyfin ffmpeg supports -hwaccel cuda (built with
+        # --enable-cuda --enable-cuvid --enable-nvdec).  The earlier exit-218
+        # failures were caused by mov_text subtitle muxing, not CUDA decode.
+        # The 2-stage fallback in transcode_worker.py handles edge cases.
+        if worker.cloud_provider and not config.get("hw_accel"):
+            config["hw_accel"] = "nvenc"
 
         # Strip incompatible encoder_tune values
         tune = config.get("encoder_tune")

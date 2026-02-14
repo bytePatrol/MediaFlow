@@ -5,6 +5,7 @@ struct TranscodeJobCardView: View {
     let job: TranscodeJob
     var logMessages: [String] = []
     var transferProgress: TransferProgress?
+    var preuploadProgress: TransferProgress?
     var phaseLabel: String? = nil
     var onCancel: (() -> Void)? = nil
     @State private var showLog: Bool = false
@@ -212,6 +213,17 @@ struct TranscodeJobCardView: View {
                                 .padding(.vertical, 6)
                                 .background(Color.mfSurface.opacity(0.5))
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                            } else if job.status == "queued", let pp = preuploadProgress {
+                                // Pre-upload speed/ETA chips
+                                HStack(spacing: 0) {
+                                    StatChip(label: "SPEED", value: pp.speed, color: .mfTextSecondary)
+                                    Divider().frame(height: 24).padding(.horizontal, 8)
+                                    StatChip(label: "ETA", value: pp.formattedETA, color: .mfTextSecondary)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.mfSurface.opacity(0.5))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                             } else if job.isActive {
                                 // Transcode speed/ETA chips
                                 HStack(spacing: 0) {
@@ -228,12 +240,23 @@ struct TranscodeJobCardView: View {
                             // Progress bar
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
-                                    Text(job.status == "transferring" ? transferStatusLabel : job.statusDisplayName)
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundColor(statusColor)
-                                        .lineLimit(1)
+                                    if job.status == "queued", let pp = preuploadProgress {
+                                        Text("Pre-uploading \(Int(pp.progress))% @ \(pp.speed)")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundColor(.mfTextSecondary)
+                                            .lineLimit(1)
+                                    } else {
+                                        Text(job.status == "transferring" ? transferStatusLabel : job.statusDisplayName)
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundColor(statusColor)
+                                            .lineLimit(1)
+                                    }
                                     Spacer()
-                                    if job.status == "transferring", let tp = transferProgress {
+                                    if job.status == "queued", let pp = preuploadProgress {
+                                        Text("\(Int(pp.progress))%")
+                                            .font(.mfMonoSmall)
+                                            .foregroundColor(.mfTextSecondary)
+                                    } else if job.status == "transferring", let tp = transferProgress {
                                         Text("\(Int(tp.progress))%")
                                             .font(.mfMonoSmall)
                                             .foregroundColor(.mfTextSecondary)
@@ -252,6 +275,19 @@ struct TranscodeJobCardView: View {
                                             .foregroundColor(.mfError.opacity(0.8))
                                             .lineLimit(2)
                                     }
+                                } else if job.status == "queued", let pp = preuploadProgress {
+                                    GeometryReader { geo in
+                                        ZStack(alignment: .leading) {
+                                            RoundedRectangle(cornerRadius: 3)
+                                                .fill(Color.mfSurface)
+                                                .frame(height: 6)
+                                            RoundedRectangle(cornerRadius: 3)
+                                                .fill(Color.mfTextSecondary.opacity(0.5))
+                                                .frame(width: geo.size.width * pp.progress / 100.0, height: 6)
+                                                .animation(.linear(duration: 0.3), value: pp.progress)
+                                        }
+                                    }
+                                    .frame(height: 6)
                                 } else if job.status == "transferring" {
                                     GeometryReader { geo in
                                         ZStack(alignment: .leading) {
@@ -332,6 +368,7 @@ struct TranscodeJobCardView: View {
                     lineWidth: 1
                 )
         )
+        .hoverCard()
         .contextMenu {
             if let cmd = job.ffmpegCommand {
                 Button {

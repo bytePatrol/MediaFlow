@@ -53,6 +53,8 @@ class TranscodeWorker:
         self.running = True
         self.active_processes: dict = {}
         self._cancelled_jobs: set = set()
+        self._preupload_task: Optional[asyncio.Task] = None
+        self._preupload_job_id: Optional[int] = None
 
     async def start(self):
         logger.info("TranscodeWorker started")
@@ -66,6 +68,10 @@ class TranscodeWorker:
 
     async def stop(self):
         self.running = False
+        if self._preupload_task and not self._preupload_task.done():
+            self._preupload_task.cancel()
+            self._preupload_task = None
+            self._preupload_job_id = None
         for pid, proc in self.active_processes.items():
             proc.terminate()
 
@@ -85,13 +91,34 @@ class TranscodeWorker:
                 job.progress_percent = 0.0
                 job.current_fps = None
                 job.eta_seconds = None
+                job.source_prestaged = False
+
+            # Also reset prestaged flag on any queued jobs (stale from previous run)
+            prestaged_result = await session.execute(
+                select(TranscodeJob).where(
+                    TranscodeJob.status == "queued",
+                    TranscodeJob.source_prestaged == True,  # noqa: E712
+                )
+            )
+            for job in prestaged_result.scalars().all():
+                logger.info(f"Job {job.id}: resetting stale source_prestaged flag")
+                job.source_prestaged = False
+
             if orphans:
                 await session.commit()
-                logger.info(f"Recovered {len(orphans)} orphaned jobs")
+            else:
+                await session.commit()
+                logger.info("No orphaned jobs, checked prestaged flags")
 
     async def cancel_job(self, job_id: int):
         """Cancel a running or queued job by killing its process."""
         self._cancelled_jobs.add(job_id)
+        # Cancel pre-upload if this job is being pre-uploaded
+        if self._preupload_job_id == job_id and self._preupload_task and not self._preupload_task.done():
+            logger.info(f"Job {job_id}: cancelling active pre-upload")
+            self._preupload_task.cancel()
+            self._preupload_task = None
+            self._preupload_job_id = None
         proc = self.active_processes.get(job_id)
         if proc:
             logger.info(f"Job {job_id}: killing active process (pid={proc.pid})")
@@ -104,6 +131,14 @@ class TranscodeWorker:
         return job_id in self._cancelled_jobs
 
     async def _process_queue(self):
+        # Check schedule: if outside active hours, skip processing
+        from app.workers.scheduler import is_within_active_hours
+        if not await is_within_active_hours():
+            return
+
+        # Try to assign any unassigned queued jobs to available workers
+        await self._try_assign_unassigned_jobs()
+
         async with async_session_factory() as session:
             result = await session.execute(
                 select(TranscodeJob)
@@ -115,14 +150,16 @@ class TranscodeWorker:
             if not candidates:
                 return
 
+            now = datetime.utcnow()
             job = None
             for candidate in candidates:
-                # Skip unassigned jobs whose source isn't locally accessible —
-                # they're waiting for a cloud/remote worker to be assigned
+                # Skip jobs that have a scheduled_after time in the future
+                if candidate.scheduled_after is not None and candidate.scheduled_after > now:
+                    continue
+                # Skip unassigned jobs — they stay queued until a worker is
+                # assigned (either by _try_assign_unassigned_jobs or cloud deploy)
                 if candidate.worker_server_id is None:
-                    check_path = candidate.worker_input_path or candidate.source_path
-                    if check_path and not os.path.exists(check_path):
-                        continue
+                    continue
                 job = candidate
                 break
 
@@ -138,6 +175,98 @@ class TranscodeWorker:
             })
 
             await self._execute_job(job.id)
+
+    async def _try_assign_unassigned_jobs(self):
+        """Check for queued jobs with no worker and assign them if workers are available."""
+        from app.services.transcode_service import TranscodeService
+        from app.utils.ffmpeg import FFmpegCommandBuilder
+        from app.utils.path_resolver import determine_transfer_mode
+
+        async with async_session_factory() as session:
+            # Find queued jobs with no worker assigned
+            result = await session.execute(
+                select(TranscodeJob).where(
+                    TranscodeJob.status == "queued",
+                    TranscodeJob.worker_server_id.is_(None),
+                )
+            )
+            unassigned = result.scalars().all()
+            if not unassigned:
+                return
+
+            # Check if any workers are available
+            result = await session.execute(
+                select(WorkerServer).where(
+                    WorkerServer.is_enabled == True,  # noqa: E712
+                    WorkerServer.status == "online",
+                )
+            )
+            workers = result.scalars().all()
+            if not workers:
+                return
+
+            svc = TranscodeService(session)
+
+            for job in unassigned:
+                # Determine if the Plex server has SSH configured (for Plex library jobs)
+                plex_server_has_ssh = False
+                if job.media_item_id:
+                    media_result = await session.execute(
+                        select(MediaItem).where(MediaItem.id == job.media_item_id)
+                    )
+                    media = media_result.scalar_one_or_none()
+                    if media and media.plex_library_id:
+                        lib_result = await session.execute(
+                            select(PlexLibrary).where(PlexLibrary.id == media.plex_library_id)
+                        )
+                        lib = lib_result.scalar_one_or_none()
+                        if lib and lib.plex_server_id:
+                            srv_result = await session.execute(
+                                select(PlexServer).where(PlexServer.id == lib.plex_server_id)
+                            )
+                            srv = srv_result.scalar_one_or_none()
+                            if srv and srv.ssh_hostname:
+                                plex_server_has_ssh = True
+
+                # Assign to best available worker
+                worker_id, mode, resolved_path = await svc._assign_worker(
+                    job.source_path, plex_server_has_ssh=plex_server_has_ssh,
+                )
+                if not worker_id:
+                    continue
+
+                # Upgrade to NVENC if worker has GPU
+                config = job.config_json or {}
+                config = await svc._maybe_upgrade_to_nvenc(worker_id, config)
+
+                # Rebuild ffmpeg command
+                effective_input = resolved_path or job.source_path
+                builder = FFmpegCommandBuilder(config, effective_input)
+                ffmpeg_command = builder.build()
+
+                # Determine output path — preserve V2 naming for manual jobs
+                if job.media_item_id is None:
+                    source_stem = os.path.splitext(os.path.basename(job.source_path))[0]
+                    container = config.get("container", "mkv")
+                    output_path = os.path.join(
+                        os.path.dirname(effective_input),
+                        f"{source_stem} V2.{container}",
+                    )
+                else:
+                    output_path = builder._get_output_path()
+
+                job.worker_server_id = worker_id
+                job.transfer_mode = mode
+                job.worker_input_path = resolved_path
+                job.config_json = config
+                job.ffmpeg_command = ffmpeg_command
+                job.output_path = output_path
+
+                logger.info(
+                    f"Job {job.id}: assigned to worker {worker_id} (mode={mode})"
+                )
+
+            await session.commit()
 
     async def _execute_job(self, job_id: int):
         async with async_session_factory() as session:
@@ -259,64 +388,15 @@ class TranscodeWorker:
         ssh = SSHClient(worker.hostname, worker.port,
                         worker.ssh_username, worker.ssh_key_path)
 
-        # Find source file locally using path mappings
-        local_source = job.source_path
-
-        # Try path mappings from the local (controller) worker first
-        ctrl_result = await session.execute(
-            select(WorkerServer).where(WorkerServer.is_local == True)  # noqa: E712
-        )
-        controller = ctrl_result.scalar_one_or_none()
-        if controller and controller.path_mappings:
-            resolved = resolve_path(job.source_path, controller.path_mappings)
-            if resolved:
-                local_source = resolved
-
-        # Also try app-level path mappings from settings
-        if not os.path.exists(local_source):
-            from app.models.app_settings import AppSetting
-            result = await session.execute(
-                select(AppSetting).where(AppSetting.key == "path_mappings")
-            )
-            setting = result.scalar_one_or_none()
-            if setting and setting.value:
-                import json as _json
-                try:
-                    mappings = _json.loads(setting.value)
-                    resolved = resolve_path(job.source_path, mappings)
-                    if resolved:
-                        local_source = resolved
-                except Exception:
-                    pass
-
-        # If file not found locally, try pulling from Plex server via SSH
-        pulled_from_nas = False
-        nas_ssh = None
-        plex_server = None
-        staging_dir = "/tmp/mediaflow"
-        if not os.path.exists(local_source):
-            logger.info(f"Job {job.id}: source not found locally, attempting SSH pull from Plex server")
-            media = await self._get_media(job, session)
-            plex_server = await self._resolve_plex_server(job, media, session)
-
-            if plex_server and plex_server.ssh_hostname:
-                nas_ssh = SSHClient(plex_server.ssh_hostname, plex_server.ssh_port or 22,
-                                    plex_server.ssh_username, plex_server.ssh_key_path,
-                                    plex_server.ssh_password)
-                pulled_from_nas = True
-            else:
-                job.status = "failed"
-                job.ffmpeg_log = (
-                    f"Source file not accessible locally for upload: {local_source}\n"
-                    "Configure SSH on the Plex server or set up path mappings."
-                )
-                await session.commit()
-                await manager.broadcast("job.failed", {
-                    "job_id": job.id, "error": f"Source not found: {local_source}"
-                })
-                return
+        # Resolve source file location
+        resolved = await self._resolve_local_source(job, session)
+        if resolved is None:
+            return  # _resolve_local_source already set job to failed
+        local_source, pulled_from_nas, nas_ssh, plex_server = resolved
 
         if not pulled_from_nas:
+            media = await self._get_media(job, session)
+        else:
             media = await self._get_media(job, session)
         start_time = time.time()
 
@@ -329,49 +409,67 @@ class TranscodeWorker:
         remote_source = f"{working_dir}/{source_basename}"
         worker_label = f"remote GPU ({worker.name or worker.hostname})"
 
-        job.status = "transferring"
-        if pulled_from_nas:
-            # Stream directly from Plex NAS to GPU worker (no local staging)
-            relay_label = f"Transferring source from Plex NAS to {worker_label}"
-            job.status_detail = f"{relay_label}..."
-            await session.commit()
-            await manager.broadcast("job.status_changed", {"job_id": job.id, "status": "transferring"})
-            await manager.broadcast("job.log", {
-                "job_id": job.id,
-                "message": job.status_detail,
-            })
-            logger.info(f"Job {job.id}: relaying {job.source_path} from {plex_server.ssh_hostname} to {worker.hostname}:{remote_source}")
+        # Check if source was pre-staged by a previous job's preupload
+        upload_skipped = False
+        if job.source_prestaged and job.worker_input_path:
+            # Verify the pre-staged file actually exists on remote
+            check = await ssh.run_command(f"test -f {shlex.quote(job.worker_input_path)} && echo ok")
+            if check.get("stdout", "").strip() == "ok":
+                logger.info(f"Job {job.id}: source already pre-staged at {job.worker_input_path}, skipping upload")
+                remote_source = job.worker_input_path
+                upload_skipped = True
+                await manager.broadcast("job.log", {
+                    "job_id": job.id,
+                    "message": "Source already pre-staged — skipping upload",
+                })
+            else:
+                logger.warning(f"Job {job.id}: pre-staged file missing at {job.worker_input_path}, falling back to normal upload")
+                job.source_prestaged = False
 
-            relay_progress = self._make_transfer_progress_cb(job.id, "upload", job.source_size or 0, label=relay_label)
-            uploaded = await nas_ssh.relay_to(
-                job.source_path, ssh, remote_source,
-                total_size=job.source_size or 0,
-                progress_callback=relay_progress,
-            )
-        else:
-            # Upload from local filesystem
-            job.status_detail = f"Uploading source to {worker_label}..."
-            await session.commit()
-            await manager.broadcast("job.status_changed", {"job_id": job.id, "status": "transferring"})
-            await manager.broadcast("job.log", {
-                "job_id": job.id,
-                "message": job.status_detail,
-            })
-            logger.info(f"Job {job.id}: uploading {local_source} to {worker.hostname}:{remote_source}")
+        if not upload_skipped:
+            job.status = "transferring"
+            if pulled_from_nas:
+                # Stream directly from Plex NAS to GPU worker (no local staging)
+                relay_label = f"Transferring source from Plex NAS to {worker_label}"
+                job.status_detail = f"{relay_label}..."
+                await session.commit()
+                await manager.broadcast("job.status_changed", {"job_id": job.id, "status": "transferring"})
+                await manager.broadcast("job.log", {
+                    "job_id": job.id,
+                    "message": job.status_detail,
+                })
+                logger.info(f"Job {job.id}: relaying {job.source_path} from {plex_server.ssh_hostname} to {worker.hostname}:{remote_source}")
 
-            upload_size = os.path.getsize(local_source) if os.path.exists(local_source) else 0
-            ul_label = f"Uploading source to {worker_label}"
-            ul_progress = self._make_transfer_progress_cb(job.id, "upload", upload_size, label=ul_label)
-            uploaded = await ssh.upload_file(local_source, remote_source, progress_callback=ul_progress)
+                relay_progress = self._make_transfer_progress_cb(job.id, "upload", job.source_size or 0, label=relay_label)
+                uploaded = await nas_ssh.relay_to(
+                    job.source_path, ssh, remote_source,
+                    total_size=job.source_size or 0,
+                    progress_callback=relay_progress,
+                )
+            else:
+                # Upload from local filesystem
+                job.status_detail = f"Uploading source to {worker_label}..."
+                await session.commit()
+                await manager.broadcast("job.status_changed", {"job_id": job.id, "status": "transferring"})
+                await manager.broadcast("job.log", {
+                    "job_id": job.id,
+                    "message": job.status_detail,
+                })
+                logger.info(f"Job {job.id}: uploading {local_source} to {worker.hostname}:{remote_source}")
 
-        if not uploaded:
-            job.status = "failed"
-            job.ffmpeg_log = f"Failed to transfer source to {worker.hostname}"
-            await session.commit()
-            await manager.broadcast("job.failed", {
-                "job_id": job.id, "error": f"Transfer failed to {worker.hostname}"
-            })
-            return
+                upload_size = os.path.getsize(local_source) if os.path.exists(local_source) else 0
+                ul_label = f"Uploading source to {worker_label}"
+                ul_progress = self._make_transfer_progress_cb(job.id, "upload", upload_size, label=ul_label)
+                uploaded = await ssh.upload_file(local_source, remote_source, progress_callback=ul_progress)
+
+            if not uploaded:
+                job.status = "failed"
+                job.ffmpeg_log = f"Failed to transfer source to {worker.hostname}"
+                await session.commit()
+                await manager.broadcast("job.failed", {
+                    "job_id": job.id, "error": f"Transfer failed to {worker.hostname}"
+                })
+                return
 
         # Rewrite ffmpeg command to use remote paths
         remote_output = os.path.splitext(remote_source)[0] + ".mediaflow." + (
@@ -381,9 +479,15 @@ class TranscodeWorker:
         job.worker_output_path = remote_output
         await session.commit()
 
+        # Ensure NVENC upgrade is applied (may have been lost if backend reloaded mid-commit)
+        from app.services.transcode_service import TranscodeService
+        svc = TranscodeService(session)
+        config = job.config_json or {}
+        config = await svc._maybe_upgrade_to_nvenc(worker.id, config)
+        job.config_json = config
+
         # Build remote ffmpeg command with the remote paths
         from app.utils.ffmpeg import FFmpegCommandBuilder
-        config = job.config_json or {}
         builder = FFmpegCommandBuilder(config, remote_source)
         remote_ffmpeg_cmd = builder.build()
         # Replace local ffmpeg path with bare 'ffmpeg' for remote execution
@@ -404,6 +508,9 @@ class TranscodeWorker:
             probe_info = await probe_file(job.source_path)
             if probe_info:
                 total_duration = probe_info.duration
+
+        # Start pre-uploading the next queued job while GPU transcodes
+        await self._start_preupload_next_job(worker, ssh)
 
         if worker.cloud_provider:
             # Use streaming SSH for real-time progress on cloud workers
@@ -433,64 +540,102 @@ class TranscodeWorker:
 
         if result["exit_status"] != 0:
             log_text = result.get("stderr", "") or result.get("stdout", "")
-
-            # NVENC/CUDA failure — fall back to CPU encoding and retry
             video_codec = config.get("video_codec", "")
-            cpu_codec = NVENC_CPU_FALLBACK.get(video_codec)
-            if cpu_codec and _is_nvenc_failure(log_text):
+            retried = False
+
+            # Fallback 1: If CUDA hwaccel decode failed, retry with CPU decode + GPU encode
+            if config.get("hw_accel") and video_codec in NVENC_CPU_FALLBACK:
                 logger.warning(
-                    "Job %d: NVENC failed on worker, falling back to CPU codec %s",
-                    job.id, cpu_codec,
+                    "Job %d: CUDA hardware decode failed (exit %d), retrying with CPU decode + GPU encode",
+                    job.id, result["exit_status"],
                 )
                 await manager.broadcast("job.log", {
                     "job_id": job.id,
-                    "message": f"GPU encoding unavailable — retrying with CPU encoder ({cpu_codec})...",
+                    "message": "CUDA decode failed — retrying with CPU decode + GPU encode...",
                 })
-                config = {**config, "video_codec": cpu_codec, "hw_accel": None}
-                config.pop("encoder_tune", None)  # will be re-added by builder if set
+                config = {**config, "hw_accel": None}
                 job.config_json = config
 
-                fallback_builder = FFmpegCommandBuilder(config, remote_source)
-                fallback_cmd = fallback_builder.build()
-                if fallback_cmd.startswith("/"):
-                    fallback_cmd = "ffmpeg" + fallback_cmd[fallback_cmd.index(" "):]
+                fb1_builder = FFmpegCommandBuilder(config, remote_source)
+                fb1_cmd = fb1_builder.build()
+                if fb1_cmd.startswith("/"):
+                    fb1_cmd = "ffmpeg" + fb1_cmd[fb1_cmd.index(" "):]
 
-                # Reset progress
                 job.progress_percent = 0.0
                 job.current_fps = None
                 job.eta_seconds = None
                 await session.commit()
 
                 if worker.cloud_provider:
-                    result = await ssh.run_command_streaming(fallback_cmd, line_callback=_ffmpeg_line_cb)
+                    result = await ssh.run_command_streaming(fb1_cmd, line_callback=_ffmpeg_line_cb)
                 else:
-                    result = await ssh.run_command(fallback_cmd)
+                    result = await ssh.run_command(fb1_cmd)
 
-                if result["exit_status"] != 0:
+                if result["exit_status"] == 0:
+                    job.ffmpeg_command = fb1_cmd
+                    remote_output = os.path.splitext(remote_source)[0] + ".mediaflow." + (
+                        config.get("container", "mkv")
+                    )
+                    retried = True
+                else:
                     log_text = result.get("stderr", "") or result.get("stdout", "")
+
+            # Fallback 2: NVENC encode failed — fall back to full CPU encoding
+            if not retried and result["exit_status"] != 0:
+                cpu_codec = NVENC_CPU_FALLBACK.get(video_codec)
+                if cpu_codec and (_is_nvenc_failure(log_text)
+                                  or video_codec in NVENC_CPU_FALLBACK):
+                    logger.warning(
+                        "Job %d: NVENC failed on worker, falling back to CPU codec %s",
+                        job.id, cpu_codec,
+                    )
+                    await manager.broadcast("job.log", {
+                        "job_id": job.id,
+                        "message": f"GPU encoding unavailable — retrying with CPU encoder ({cpu_codec})...",
+                    })
+                    config = {**config, "video_codec": cpu_codec, "hw_accel": None}
+                    config.pop("encoder_tune", None)
+                    job.config_json = config
+
+                    fallback_builder = FFmpegCommandBuilder(config, remote_source)
+                    fallback_cmd = fallback_builder.build()
+                    if fallback_cmd.startswith("/"):
+                        fallback_cmd = "ffmpeg" + fallback_cmd[fallback_cmd.index(" "):]
+
+                    job.progress_percent = 0.0
+                    job.current_fps = None
+                    job.eta_seconds = None
+                    await session.commit()
+
+                    if worker.cloud_provider:
+                        result = await ssh.run_command_streaming(fallback_cmd, line_callback=_ffmpeg_line_cb)
+                    else:
+                        result = await ssh.run_command(fallback_cmd)
+
+                    if result["exit_status"] != 0:
+                        log_text = result.get("stderr", "") or result.get("stdout", "")
+                        job.status = "failed"
+                        job.ffmpeg_log = log_text[-5000:] if len(log_text) > 5000 else log_text
+                        await session.commit()
+                        await ssh.run_command(f"rm -f {shlex.quote(remote_source)} {shlex.quote(remote_output)}")
+                        await manager.broadcast("job.failed", {
+                            "job_id": job.id, "error": "Remote ffmpeg failed (CPU fallback)"
+                        })
+                        return
+
+                    job.ffmpeg_command = fallback_cmd
+                    remote_output = os.path.splitext(remote_source)[0] + ".mediaflow." + (
+                        config.get("container", "mkv")
+                    )
+                else:
                     job.status = "failed"
                     job.ffmpeg_log = log_text[-5000:] if len(log_text) > 5000 else log_text
                     await session.commit()
                     await ssh.run_command(f"rm -f {shlex.quote(remote_source)} {shlex.quote(remote_output)}")
                     await manager.broadcast("job.failed", {
-                        "job_id": job.id, "error": "Remote ffmpeg failed (CPU fallback)"
+                        "job_id": job.id, "error": "Remote ffmpeg failed"
                     })
                     return
-
-                # Update the stored ffmpeg command to reflect what actually ran
-                job.ffmpeg_command = fallback_cmd
-                remote_output = os.path.splitext(remote_source)[0] + ".mediaflow." + (
-                    config.get("container", "mkv")
-                )
-            else:
-                job.status = "failed"
-                job.ffmpeg_log = log_text[-5000:] if len(log_text) > 5000 else log_text
-                await session.commit()
-                await ssh.run_command(f"rm -f {shlex.quote(remote_source)} {shlex.quote(remote_output)}")
-                await manager.broadcast("job.failed", {
-                    "job_id": job.id, "error": "Remote ffmpeg failed"
-                })
-                return
 
         # Download output from remote worker
         if pulled_from_nas:
@@ -672,7 +817,7 @@ class TranscodeWorker:
                 except ValueError:
                     pass
             dl_progress = self._make_transfer_progress_cb(job.id, "download", dl_total, label=dl_label)
-            downloaded = await ssh.download_file(remote_output, local_output, progress_callback=dl_progress)
+            downloaded = await ssh.download_file(remote_output, local_output, progress_callback=dl_progress, total_size=dl_total)
             if not downloaded:
                 job.status = "failed"
                 job.ffmpeg_log = f"Failed to download output from {worker.hostname}"
@@ -1026,6 +1171,244 @@ class TranscodeWorker:
         return callback
 
     # --- Shared helpers ---
+
+    async def _resolve_local_source(self, job: TranscodeJob, session):
+        """Resolve the local source path for a job, trying path mappings and NAS SSH pull.
+
+        Returns (local_source, pulled_from_nas, nas_ssh, plex_server) or None if failed.
+        """
+        from app.utils.ssh import SSHClient
+
+        local_source = job.source_path
+
+        # Try path mappings from the local (controller) worker first
+        ctrl_result = await session.execute(
+            select(WorkerServer).where(WorkerServer.is_local == True)  # noqa: E712
+        )
+        controller = ctrl_result.scalar_one_or_none()
+        if controller and controller.path_mappings:
+            resolved = resolve_path(job.source_path, controller.path_mappings)
+            if resolved:
+                local_source = resolved
+
+        # Also try app-level path mappings from settings
+        if not os.path.exists(local_source):
+            from app.models.app_settings import AppSetting
+            result = await session.execute(
+                select(AppSetting).where(AppSetting.key == "path_mappings")
+            )
+            setting = result.scalar_one_or_none()
+            if setting and setting.value:
+                import json as _json
+                try:
+                    mappings = _json.loads(setting.value)
+                    resolved = resolve_path(job.source_path, mappings)
+                    if resolved:
+                        local_source = resolved
+                except Exception:
+                    pass
+
+        # If file not found locally, try pulling from Plex server via SSH
+        pulled_from_nas = False
+        nas_ssh = None
+        plex_server = None
+        if not os.path.exists(local_source):
+            logger.info(f"Job {job.id}: source not found locally, attempting SSH pull from Plex server")
+            media = await self._get_media(job, session)
+            plex_server = await self._resolve_plex_server(job, media, session)
+
+            if plex_server and plex_server.ssh_hostname:
+                nas_ssh = SSHClient(plex_server.ssh_hostname, plex_server.ssh_port or 22,
+                                    plex_server.ssh_username, plex_server.ssh_key_path,
+                                    plex_server.ssh_password)
+                pulled_from_nas = True
+            else:
+                job.status = "failed"
+                job.ffmpeg_log = (
+                    f"Source file not accessible locally for upload: {local_source}\n"
+                    "Configure SSH on the Plex server or set up path mappings."
+                )
+                await session.commit()
+                await manager.broadcast("job.failed", {
+                    "job_id": job.id, "error": f"Source not found: {local_source}"
+                })
+                return None
+
+        return (local_source, pulled_from_nas, nas_ssh, plex_server)
+
+    async def _start_preupload_next_job(self, worker: WorkerServer, ssh) -> None:
+        """Check for a next queued job on the same worker and start pre-uploading its source."""
+        # Cancel any existing preupload first
+        if self._preupload_task and not self._preupload_task.done():
+            self._preupload_task.cancel()
+            self._preupload_task = None
+            self._preupload_job_id = None
+
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(TranscodeJob).where(
+                    TranscodeJob.status == "queued",
+                    TranscodeJob.worker_server_id == worker.id,
+                    TranscodeJob.transfer_mode == "ssh_transfer",
+                    TranscodeJob.source_prestaged == False,  # noqa: E712
+                ).order_by(TranscodeJob.priority.desc(), TranscodeJob.created_at.asc())
+                .limit(1)
+            )
+            next_job = result.scalar_one_or_none()
+            if not next_job:
+                return
+
+            logger.info(f"Job {next_job.id}: starting pre-upload while GPU is busy (worker={worker.id})")
+            self._preupload_job_id = next_job.id
+            self._preupload_task = asyncio.create_task(
+                self._preupload_source(next_job.id, worker)
+            )
+
+    async def _preupload_source(self, job_id: int, worker: WorkerServer) -> None:
+        """Background task: upload the next job's source to the worker while GPU transcodes."""
+        from app.utils.ssh import SSHClient
+
+        try:
+            async with async_session_factory() as session:
+                result = await session.execute(
+                    select(TranscodeJob).where(TranscodeJob.id == job_id)
+                )
+                job = result.scalar_one_or_none()
+                if not job or job.status != "queued":
+                    return
+
+                # Resolve source path
+                resolved = await self._resolve_local_source(job, session)
+                if resolved is None:
+                    return
+                local_source, pulled_from_nas, nas_ssh, plex_server = resolved
+
+                # Determine remote path
+                working_dir = worker.working_directory or "/tmp/mediaflow"
+                source_basename = os.path.basename(job.source_path if pulled_from_nas else local_source)
+                remote_source = f"{working_dir}/{source_basename}"
+
+                # Create a fresh SSH connection for the preupload (don't share with ffmpeg)
+                preupload_ssh = SSHClient(worker.hostname, worker.port,
+                                          worker.ssh_username, worker.ssh_key_path)
+                await preupload_ssh.run_command(f"mkdir -p {shlex.quote(working_dir)}")
+
+                worker_label = f"remote GPU ({worker.name or worker.hostname})"
+
+                await manager.broadcast("job.preupload_started", {
+                    "job_id": job_id,
+                })
+
+                if pulled_from_nas:
+                    logger.info(f"Job {job_id}: pre-uploading via NAS relay to {worker.hostname}")
+                    preupload_progress = self._make_preupload_progress_cb(
+                        job_id, job.source_size or 0, f"Pre-uploading to {worker_label}"
+                    )
+                    uploaded = await nas_ssh.relay_to(
+                        job.source_path, preupload_ssh, remote_source,
+                        total_size=job.source_size or 0,
+                        progress_callback=preupload_progress,
+                    )
+                else:
+                    logger.info(f"Job {job_id}: pre-uploading {local_source} to {worker.hostname}")
+                    upload_size = os.path.getsize(local_source) if os.path.exists(local_source) else 0
+                    preupload_progress = self._make_preupload_progress_cb(
+                        job_id, upload_size, f"Pre-uploading to {worker_label}"
+                    )
+                    uploaded = await preupload_ssh.upload_file(
+                        local_source, remote_source, progress_callback=preupload_progress
+                    )
+
+                if uploaded:
+                    job.source_prestaged = True
+                    job.worker_input_path = remote_source
+                    await session.commit()
+                    logger.info(f"Job {job_id}: pre-upload complete, source staged at {remote_source}")
+                    await manager.broadcast("job.preupload_completed", {
+                        "job_id": job_id,
+                    })
+                else:
+                    logger.warning(f"Job {job_id}: pre-upload failed, will upload normally when job runs")
+
+        except asyncio.CancelledError:
+            logger.info(f"Job {job_id}: pre-upload cancelled")
+            # Try to clean up the partial remote file (only this job's file, not others)
+            try:
+                from app.utils.ssh import SSHClient
+                cleanup_ssh = SSHClient(worker.hostname, worker.port,
+                                        worker.ssh_username, worker.ssh_key_path)
+                working_dir = worker.working_directory or "/tmp/mediaflow"
+                # Look up source path from DB to find what to clean
+                async with async_session_factory() as cs:
+                    r = await cs.execute(select(TranscodeJob).where(TranscodeJob.id == job_id))
+                    cj = r.scalar_one_or_none()
+                    source_basename = os.path.basename(cj.source_path) if cj and cj.source_path else ""
+                if source_basename:
+                    await cleanup_ssh.run_command(
+                        f"rm -f {shlex.quote(working_dir + '/' + source_basename)}"
+                    )
+            except Exception:
+                pass
+            # Reset prestaged flag
+            try:
+                async with async_session_factory() as cleanup_session:
+                    result = await cleanup_session.execute(
+                        select(TranscodeJob).where(TranscodeJob.id == job_id)
+                    )
+                    j = result.scalar_one_or_none()
+                    if j:
+                        j.source_prestaged = False
+                        await cleanup_session.commit()
+            except Exception:
+                pass
+            raise
+        except Exception as e:
+            logger.warning(f"Job {job_id}: pre-upload error: {e}")
+        finally:
+            if self._preupload_job_id == job_id:
+                self._preupload_task = None
+                self._preupload_job_id = None
+
+    def _make_preupload_progress_cb(self, job_id: int, total_size: int, label: str = ""):
+        """Create a progress callback for pre-upload that broadcasts via WebSocket."""
+        start_time = time.time()
+        last_broadcast = [0.0]
+
+        def callback(src_path, dst_path, bytes_transferred, total_bytes):
+            now = time.time()
+            if now - last_broadcast[0] < 0.5 and bytes_transferred < total_bytes:
+                return
+            last_broadcast[0] = now
+
+            elapsed = now - start_time
+            if elapsed > 0:
+                speed_bps = bytes_transferred / elapsed
+                remaining = total_bytes - bytes_transferred
+                eta_seconds = int(remaining / speed_bps) if speed_bps > 0 else 0
+                progress = (bytes_transferred / total_bytes * 100) if total_bytes > 0 else 0
+
+                speed_mbps = speed_bps * 8 / 1_000_000
+                if speed_mbps >= 1000:
+                    speed_str = f"{speed_mbps / 1000:.1f} Gbps"
+                elif speed_mbps >= 1:
+                    speed_str = f"{speed_mbps:.1f} Mbps"
+                elif speed_mbps >= 0.001:
+                    speed_str = f"{speed_mbps * 1000:.0f} Kbps"
+                else:
+                    speed_str = f"{speed_bps * 8:.0f} bps"
+
+                asyncio.ensure_future(
+                    manager.broadcast("job.preupload_progress", {
+                        "job_id": job_id,
+                        "label": label,
+                        "progress": round(progress, 1),
+                        "speed": speed_str,
+                        "eta_seconds": eta_seconds,
+                        "bytes_transferred": bytes_transferred,
+                        "total_bytes": total_bytes,
+                    }))
+
+        return callback
 
     async def _resolve_plex_server(self, job: TranscodeJob, media, session):
         """Resolve the Plex server with SSH credentials for a job's media item."""

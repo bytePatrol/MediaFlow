@@ -18,10 +18,11 @@ router = APIRouter()
 async def list_recommendations(
     type: Optional[str] = None,
     include_dismissed: bool = False,
+    library_id: Optional[int] = None,
     session: AsyncSession = Depends(get_session),
 ):
     service = RecommendationService(session)
-    return await service.get_recommendations(type=type, include_dismissed=include_dismissed)
+    return await service.get_recommendations(type=type, include_dismissed=include_dismissed, library_id=library_id)
 
 
 @router.get("/summary", response_model=RecommendationSummary)
@@ -51,6 +52,21 @@ async def generate_recommendations(session: AsyncSession = Depends(get_session))
     result = await service.run_full_analysis(trigger="manual")
     return {
         "status": "completed",
+        "recommendations_generated": result["recommendations_generated"],
+        "run_id": result["run_id"],
+        "total_items_analyzed": result["total_items_analyzed"],
+        "total_estimated_savings": result["total_estimated_savings"],
+    }
+
+
+@router.post("/analyze/{library_id}")
+async def analyze_library(library_id: int, session: AsyncSession = Depends(get_session)):
+    """Run analysis for a specific library."""
+    service = RecommendationService(session)
+    result = await service.run_library_analysis(library_id=library_id, trigger="manual")
+    return {
+        "status": "completed",
+        "library_id": result["library_id"],
         "recommendations_generated": result["recommendations_generated"],
         "run_id": result["run_id"],
         "total_items_analyzed": result["total_items_analyzed"],

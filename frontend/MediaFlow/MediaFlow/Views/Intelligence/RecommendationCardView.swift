@@ -129,5 +129,6 @@ struct RecommendationCardView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(severityColor.opacity(0.2), lineWidth: 1)
         )
+        .hoverCard()
     }
 }

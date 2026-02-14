@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 @MainActor
 class AnalyticsViewModel: ObservableObject {
@@ -14,6 +16,7 @@ class AnalyticsViewModel: ObservableObject {
     @Published var topOpportunities: [SavingsOpportunity] = []
     @Published var cloudCosts: CloudCostSummary?
     @Published var isLoading: Bool = false
+    @Published var isExportingPDF: Bool = false
     @Published var errorMessage: String?
     @Published var selectedTimeRange: Int = 30
 
@@ -83,5 +86,28 @@ class AnalyticsViewModel: ObservableObject {
             trends = t
             savingsHistory = h
         } catch {}
+    }
+
+    func exportPDF() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "mediaflow-health-report.pdf"
+        panel.title = "Export Health Report"
+        panel.prompt = "Save"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        isExportingPDF = true
+        errorMessage = nil
+
+        Task {
+            do {
+                let data = try await service.downloadHealthReport()
+                try data.write(to: url)
+            } catch {
+                errorMessage = "Failed to export PDF: \(error.localizedDescription)"
+            }
+            isExportingPDF = false
+        }
     }
 }

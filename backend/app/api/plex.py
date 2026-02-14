@@ -222,6 +222,12 @@ async def _background_sync(server_id: int):
                 )
                 item_count = count_result.scalar() or 0
 
+                from app.api.websocket import manager
+                await manager.broadcast("sync.completed", {
+                    "server_name": server.name,
+                    "items_synced": item_count,
+                })
+
                 from app.utils.notify import fire_notification
                 await fire_notification("sync.completed", {
                     "server_name": server.name,

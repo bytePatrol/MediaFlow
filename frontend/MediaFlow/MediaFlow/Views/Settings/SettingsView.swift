@@ -8,6 +8,7 @@ struct SettingsView: View {
     enum SettingsTab: String, CaseIterable {
         case general = "General"
         case storage = "Storage"
+        case scheduling = "Scheduling"
         case intelligence = "Intelligence"
         case cloudGpu = "Cloud GPU"
         case notifications = "Notifications"
@@ -57,6 +58,8 @@ struct SettingsView: View {
                         GeneralSettingsView()
                     case .storage:
                         StorageSettingsView()
+                    case .scheduling:
+                        SchedulingSettingsView()
                     case .intelligence:
                         IntelligenceSettingsView()
                     case .cloudGpu:
@@ -194,7 +197,7 @@ struct GeneralSettingsView: View {
                 Task { await refreshServers() }
             }
         }
-        .onChange(of: plexAuth.authState) { newState in
+        .onChange(of: plexAuth.authState) { _, newState in
             if case .success = newState {
                 Task { await refreshServers() }
             }
@@ -1175,6 +1178,9 @@ struct NotificationSettingsView: View {
     @State private var errorMessage: String = ""
     @State private var emailPanel = EmailConfigPanel()
     @State private var webhookPanel = WebhookConfigPanel()
+    @State private var notificationHistory: [NotificationLogInfo] = []
+    @State private var isLoadingHistory: Bool = true
+    @State private var historyTotal: Int = 0
 
     private let service = BackendService()
 
@@ -1268,9 +1274,55 @@ struct NotificationSettingsView: View {
                 .buttonStyle(.plain)
             }
 
+            // Notification History
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("NOTIFICATION HISTORY")
+                        .mfSectionHeader()
+                    Spacer()
+                    if historyTotal > 0 {
+                        Text("\(historyTotal) total")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextMuted)
+                    }
+                    Button {
+                        Task { await loadHistory() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11))
+                            .foregroundColor(.mfPrimary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Refresh history")
+                }
+
+                if isLoadingHistory {
+                    HStack {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading history...")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextSecondary)
+                    }
+                } else if notificationHistory.isEmpty {
+                    Text("No notifications sent yet. Notifications will appear here once channels are configured and events are triggered.")
+                        .font(.mfBody)
+                        .foregroundColor(.mfTextMuted)
+                } else {
+                    ForEach(notificationHistory) { log in
+                        notificationHistoryRow(log: log)
+                    }
+                }
+            }
+            .padding(20)
+            .cardStyle()
+
             Spacer()
         }
-        .task { await loadConfigs() }
+        .task {
+            await loadConfigs()
+            await loadHistory()
+        }
     }
 
     private func notificationRow(config: NotificationConfigInfo, index: Int) -> some View {
@@ -1343,6 +1395,68 @@ struct NotificationSettingsView: View {
         .padding(.vertical, 4)
     }
 
+    @ViewBuilder
+    private func notificationHistoryRow(log: NotificationLogInfo) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: notificationTypeIcon(log.channelType))
+                .font(.system(size: 12))
+                .foregroundColor(log.status == "sent" ? .mfSuccess : .mfError)
+                .frame(width: 24, height: 24)
+                .background((log.status == "sent" ? Color.mfSuccess : Color.mfError).opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(formatEventName(log.event))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.mfTextPrimary)
+
+                    Text(log.status.uppercased())
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(log.status == "sent" ? .mfSuccess : .mfError)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background((log.status == "sent" ? Color.mfSuccess : Color.mfError).opacity(0.15))
+                        .clipShape(Capsule())
+                }
+
+                HStack(spacing: 8) {
+                    if let channelName = log.channelName {
+                        Text(channelName)
+                            .font(.system(size: 10))
+                            .foregroundColor(.mfTextMuted)
+                    }
+                    Text(log.channelType.capitalized)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.mfTextMuted)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.mfSurfaceLight)
+                        .clipShape(Capsule())
+                }
+
+                if let errorMsg = log.errorMessage, !errorMsg.isEmpty {
+                    Text(errorMsg)
+                        .font(.system(size: 10))
+                        .foregroundColor(.mfError)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer()
+
+            if let createdAt = log.createdAt {
+                Text(formatTimestamp(createdAt))
+                    .font(.system(size: 10))
+                    .foregroundColor(.mfTextMuted)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(Color.mfSurfaceLight.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
     private func loadConfigs() async {
         isLoading = true
         errorMessage = ""
@@ -1352,6 +1466,18 @@ struct NotificationSettingsView: View {
             errorMessage = "Failed to load: \(error.localizedDescription)"
         }
         isLoading = false
+    }
+
+    private func loadHistory() async {
+        isLoadingHistory = true
+        do {
+            let response = try await service.getNotificationHistory(limit: 50)
+            notificationHistory = response.items
+            historyTotal = response.total
+        } catch {
+            // Silently fail — history is non-critical
+        }
+        isLoadingHistory = false
     }
 
     private func toggleEnabled(config: NotificationConfigInfo, enabled: Bool) async {
@@ -1394,12 +1520,252 @@ struct NotificationSettingsView: View {
         default: return "bell.fill"
         }
     }
+
+    private func formatEventName(_ event: String) -> String {
+        event.replacingOccurrences(of: ".", with: " ").split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
+
+    private func formatTimestamp(_ timestamp: String) -> String {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateStyle = .short
+        displayFormatter.timeStyle = .short
+
+        // Try ISO 8601 first
+        if let date = isoFormatter.date(from: timestamp) {
+            return displayFormatter.string(from: date)
+        }
+
+        // Fallback: try common SQLite datetime format
+        let sqlFormatter = DateFormatter()
+        sqlFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        sqlFormatter.timeZone = TimeZone(abbreviation: "UTC")
+        if let date = sqlFormatter.date(from: timestamp) {
+            return displayFormatter.string(from: date)
+        }
+
+        return timestamp
+    }
+}
+
+// MARK: - Scheduling Settings
+
+struct SchedulingSettingsView: View {
+    @State private var scheduleEnabled: Bool = false
+    @State private var activeHoursStart: Date = SchedulingSettingsView.defaultTime(hour: 22, minute: 0)
+    @State private var activeHoursEnd: Date = SchedulingSettingsView.defaultTime(hour: 6, minute: 0)
+    @State private var activeDays: Set<Int> = Set(0...6)
+    @State private var isLoading: Bool = true
+    @State private var isSaving: Bool = false
+    @State private var statusMessage: String = ""
+    @State private var statusIsError: Bool = false
+
+    private let service = BackendService()
+    private let dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    static func defaultTime(hour: Int, minute: Int) -> Date {
+        var components = DateComponents()
+        components.hour = hour
+        components.minute = minute
+        return Calendar.current.date(from: components) ?? Date()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            // Enable/Disable
+            VStack(alignment: .leading, spacing: 12) {
+                Text("TRANSCODE SCHEDULING")
+                    .mfSectionHeader()
+
+                Toggle(isOn: $scheduleEnabled) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Enable scheduling")
+                            .font(.mfBody)
+                            .foregroundColor(.mfTextPrimary)
+                        Text("Only process transcode jobs during the configured active hours and days. Jobs queued outside this window will wait until the next active period.")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextMuted)
+                    }
+                }
+                .toggleStyle(.switch)
+                .tint(.mfPrimary)
+            }
+            .padding(20)
+            .cardStyle()
+
+            // Active Hours
+            VStack(alignment: .leading, spacing: 12) {
+                Text("ACTIVE HOURS")
+                    .mfSectionHeader()
+
+                Text("Transcode jobs will only run between these times. Supports overnight windows (e.g. 22:00 to 06:00).")
+                    .font(.mfBody)
+                    .foregroundColor(.mfTextSecondary)
+
+                HStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Start Time")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextMuted)
+                        DatePicker("", selection: $activeHoursStart, displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                            .frame(width: 100)
+                    }
+
+                    Image(systemName: "arrow.right")
+                        .foregroundColor(.mfTextMuted)
+                        .padding(.top, 16)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("End Time")
+                            .font(.mfCaption)
+                            .foregroundColor(.mfTextMuted)
+                        DatePicker("", selection: $activeHoursEnd, displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                            .frame(width: 100)
+                    }
+
+                    Spacer()
+                }
+            }
+            .padding(20)
+            .cardStyle()
+            .opacity(scheduleEnabled ? 1.0 : 0.5)
+            .allowsHitTesting(scheduleEnabled)
+
+            // Active Days
+            VStack(alignment: .leading, spacing: 12) {
+                Text("ACTIVE DAYS")
+                    .mfSectionHeader()
+
+                Text("Select which days of the week transcoding is allowed.")
+                    .font(.mfBody)
+                    .foregroundColor(.mfTextSecondary)
+
+                HStack(spacing: 8) {
+                    ForEach(0..<7, id: \.self) { day in
+                        Button {
+                            if activeDays.contains(day) {
+                                activeDays.remove(day)
+                            } else {
+                                activeDays.insert(day)
+                            }
+                        } label: {
+                            Text(dayNames[day])
+                                .font(.system(size: 12, weight: activeDays.contains(day) ? .semibold : .medium))
+                                .foregroundColor(activeDays.contains(day) ? .white : .mfTextSecondary)
+                                .frame(width: 44, height: 32)
+                                .background(activeDays.contains(day) ? Color.mfPrimary : Color.mfSurfaceLight)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(20)
+            .cardStyle()
+            .opacity(scheduleEnabled ? 1.0 : 0.5)
+            .allowsHitTesting(scheduleEnabled)
+
+            // Save
+            HStack {
+                Button {
+                    Task { await saveSettings() }
+                } label: {
+                    HStack(spacing: 4) {
+                        if isSaving {
+                            ProgressView().scaleEffect(0.7).frame(width: 14, height: 14)
+                        }
+                        Text(isSaving ? "Saving..." : "Save Schedule Settings")
+                    }
+                    .primaryButton()
+                }
+                .buttonStyle(.plain)
+                .disabled(isSaving)
+
+                if !statusMessage.isEmpty {
+                    Text(statusMessage)
+                        .font(.mfCaption)
+                        .foregroundColor(statusIsError ? .mfError : .mfSuccess)
+                }
+            }
+
+            Spacer()
+        }
+        .task { await loadSettings() }
+    }
+
+    private func timeToString(_ date: Date) -> String {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return String(format: "%02d:%02d", components.hour ?? 0, components.minute ?? 0)
+    }
+
+    private func stringToDate(_ str: String) -> Date {
+        let parts = str.split(separator: ":").compactMap { Int($0) }
+        if parts.count == 2 {
+            return SchedulingSettingsView.defaultTime(hour: parts[0], minute: parts[1])
+        }
+        return Date()
+    }
+
+    private func loadSettings() async {
+        isLoading = true
+        do {
+            let enabledResult = try await service.getScheduleSetting(key: "schedule.enabled")
+            scheduleEnabled = enabledResult.value == "true"
+
+            let startResult = try await service.getScheduleSetting(key: "schedule.active_hours_start")
+            if let val = startResult.value {
+                activeHoursStart = stringToDate(val)
+            }
+
+            let endResult = try await service.getScheduleSetting(key: "schedule.active_hours_end")
+            if let val = endResult.value {
+                activeHoursEnd = stringToDate(val)
+            }
+
+            let daysResult = try await service.getScheduleSetting(key: "schedule.active_days")
+            if let val = daysResult.value {
+                activeDays = Set(val.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) })
+            }
+        } catch {
+            // Use defaults on failure
+        }
+        isLoading = false
+    }
+
+    private func saveSettings() async {
+        isSaving = true
+        statusMessage = ""
+        do {
+            let settings: [(String, String)] = [
+                ("schedule.enabled", scheduleEnabled ? "true" : "false"),
+                ("schedule.active_hours_start", timeToString(activeHoursStart)),
+                ("schedule.active_hours_end", timeToString(activeHoursEnd)),
+                ("schedule.active_days", activeDays.sorted().map(String.init).joined(separator: ",")),
+            ]
+            for (key, value) in settings {
+                _ = try await service.setScheduleSetting(key: key, value: value)
+            }
+            statusMessage = "Schedule settings saved"
+            statusIsError = false
+        } catch {
+            statusMessage = "Save failed: \(error.localizedDescription)"
+            statusIsError = true
+        }
+        isSaving = false
+    }
 }
 
 // MARK: - Intelligence Settings
 
 struct IntelligenceSettingsView: View {
     @State private var autoAnalyze: Bool = true
+    @State private var autoAnalyzeInterval: String = "disabled"
     @State private var overkillMinSizeGB: Double = 30
     @State private var overkillMaxPlays: Double = 2
     @State private var storageOptMinSizeGB: Double = 20
@@ -1434,6 +1800,22 @@ struct IntelligenceSettingsView: View {
                 }
                 .toggleStyle(.switch)
                 .tint(.mfPrimary)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Scheduled Auto-Analysis")
+                        .font(.mfCaption)
+                        .foregroundColor(.mfTextMuted)
+                    Picker("Auto-Analysis Frequency", selection: $autoAnalyzeInterval) {
+                        Text("Disabled").tag("disabled")
+                        Text("Daily").tag("daily")
+                        Text("Weekly").tag("weekly")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 300)
+                    Text("Run full analysis on a recurring schedule, independent of library syncs.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.mfTextMuted)
+                }
             }
             .padding(20)
             .cardStyle()
@@ -1599,6 +1981,11 @@ struct IntelligenceSettingsView: View {
 
             let autoResult = try await service.getIntelSetting(key: "intel.auto_analyze_on_sync")
             autoAnalyze = autoResult.value != "false"
+
+            let intervalResult = try await service.getIntelSetting(key: "intel.auto_analyze_interval")
+            if let val = intervalResult.value, ["disabled", "daily", "weekly"].contains(val) {
+                autoAnalyzeInterval = val
+            }
         } catch {
             // Use defaults on failure
         }
@@ -1611,6 +1998,7 @@ struct IntelligenceSettingsView: View {
         do {
             let settings: [(String, String)] = [
                 ("intel.auto_analyze_on_sync", autoAnalyze ? "true" : "false"),
+                ("intel.auto_analyze_interval", autoAnalyzeInterval),
                 ("intel.overkill_min_size_gb", "\(Int(overkillMinSizeGB))"),
                 ("intel.overkill_max_plays", "\(Int(overkillMaxPlays))"),
                 ("intel.storage_opt_min_size_gb", "\(Int(storageOptMinSizeGB))"),

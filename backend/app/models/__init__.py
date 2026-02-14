@@ -12,10 +12,11 @@ from app.models.app_settings import AppSetting
 from app.models.filter_preset import FilterPreset
 from app.models.server_benchmark import ServerBenchmark
 from app.models.cloud_cost import CloudCostRecord
+from app.models.notification_log import NotificationLog
 
 __all__ = [
     "PlexServer", "PlexLibrary", "MediaItem", "TranscodePreset",
     "TranscodeJob", "WorkerServer", "JobLog", "Recommendation",
     "CustomTag", "MediaTag", "NotificationConfig", "AppSetting", "FilterPreset",
-    "ServerBenchmark", "CloudCostRecord",
+    "ServerBenchmark", "CloudCostRecord", "NotificationLog",
 ]

@@ -58,12 +58,18 @@ class RecommendationService:
     # ── Public API ──────────────────────────────────────────────────────
 
     async def get_recommendations(self, type: Optional[str] = None,
-                                   include_dismissed: bool = False) -> List[RecommendationResponse]:
+                                   include_dismissed: bool = False,
+                                   library_id: Optional[int] = None) -> List[RecommendationResponse]:
         query = select(Recommendation)
         if type:
             query = query.where(Recommendation.type == type)
         if not include_dismissed:
             query = query.where(Recommendation.is_dismissed == False)  # noqa: E712
+        if library_id is not None:
+            # Filter by library: join through media_item to check plex_library_id
+            query = query.join(MediaItem, Recommendation.media_item_id == MediaItem.id).where(
+                MediaItem.plex_library_id == library_id
+            )
         query = query.order_by(Recommendation.priority_score.desc().nullslast(), Recommendation.created_at.desc())
         result = await self.session.execute(query)
         recs = result.scalars().all()
@@ -170,7 +176,16 @@ class RecommendationService:
         run.total_estimated_savings = total_savings
         await self.session.commit()
 
-        # Fire notification
+        # Broadcast via WebSocket + fire notification
+        try:
+            from app.api.websocket import manager
+            await manager.broadcast("analysis.completed", {
+                "run_id": run.id,
+                "recommendations_generated": len(all_recs),
+                "total_estimated_savings": total_savings,
+            })
+        except Exception:
+            pass
         try:
             from app.utils.notify import fire_notification
             await fire_notification("analysis.completed", {
@@ -184,6 +199,97 @@ class RecommendationService:
         return {
             "run_id": run.id,
             "trigger": trigger,
+            "total_items_analyzed": total_items,
+            "recommendations_generated": len(all_recs),
+            "total_estimated_savings": total_savings,
+        }
+
+    async def run_library_analysis(self, library_id: int, trigger: str = "manual") -> Dict[str, Any]:
+        """Run all analyzers scoped to a single library and return an analysis run summary."""
+        # Create analysis run record
+        run = AnalysisRun(trigger=trigger)
+        self.session.add(run)
+        await self.session.flush()
+
+        # Get media_item_ids for this library
+        lib_item_ids_result = await self.session.execute(
+            select(MediaItem.id).where(MediaItem.plex_library_id == library_id)
+        )
+        lib_item_ids = [row[0] for row in lib_item_ids_result.all()]
+
+        # Clear non-dismissed, non-actioned recommendations for items in this library
+        if lib_item_ids:
+            await self.session.execute(
+                delete(Recommendation).where(
+                    Recommendation.is_actioned == False,  # noqa: E712
+                    Recommendation.is_dismissed == False,  # noqa: E712
+                    Recommendation.media_item_id.in_(lib_item_ids),
+                )
+            )
+        await self.session.commit()
+
+        # Load configurable thresholds
+        thresholds = await self._load_thresholds()
+
+        # Load learned compression ratios from job history
+        learned_ratios = await self._get_learned_ratios()
+
+        # Count total items for the run
+        total_items = len(lib_item_ids)
+
+        # Run all analyzers scoped to library
+        all_recs: List[Recommendation] = []
+        all_recs.extend(await self._analyze_codec_modernization(thresholds, learned_ratios, library_id=library_id))
+        all_recs.extend(await self._analyze_quality_overkill(thresholds, learned_ratios, library_id=library_id))
+        all_recs.extend(await self._detect_duplicates(library_id=library_id))
+        all_recs.extend(await self._analyze_quality_gaps(thresholds, library_id=library_id))
+        all_recs.extend(await self._analyze_storage_optimization(thresholds, learned_ratios, library_id=library_id))
+        all_recs.extend(await self._analyze_audio_optimization(thresholds, library_id=library_id))
+        all_recs.extend(await self._analyze_container_modernize(thresholds, library_id=library_id))
+        all_recs.extend(await self._analyze_hdr_to_sdr(thresholds, learned_ratios, library_id=library_id))
+        all_recs.extend(await self._analyze_batch_similar(thresholds, learned_ratios, library_id=library_id))
+
+        # Score and attach to run
+        for rec in all_recs:
+            rec.analysis_run_id = run.id
+            self.session.add(rec)
+
+        await self.session.flush()
+
+        # Update run with completion stats
+        total_savings = sum(r.estimated_savings or 0 for r in all_recs)
+        run.completed_at = datetime.utcnow()
+        run.total_items_analyzed = total_items
+        run.recommendations_generated = len(all_recs)
+        run.total_estimated_savings = total_savings
+        await self.session.commit()
+
+        # Broadcast via WebSocket + fire notification
+        try:
+            from app.api.websocket import manager
+            await manager.broadcast("analysis.completed", {
+                "run_id": run.id,
+                "library_id": library_id,
+                "recommendations_generated": len(all_recs),
+                "total_estimated_savings": total_savings,
+            })
+        except Exception:
+            pass
+        try:
+            from app.utils.notify import fire_notification
+            await fire_notification("analysis.completed", {
+                "run_id": run.id,
+                "library_id": library_id,
+                "recommendations_generated": len(all_recs),
+                "total_estimated_savings": total_savings,
+            })
+        except Exception:
+            pass
+
+        return {
+            "run_id": run.id,
+            "trigger": trigger,
+            "library_id": library_id,
             "total_items_analyzed": total_items,
             "recommendations_generated": len(all_recs),
             "total_estimated_savings": total_savings,
@@ -384,12 +490,14 @@ class RecommendationService:
     # ── Analyzers ───────────────────────────────────────────────────────
 
     async def _analyze_codec_modernization(self, thresholds: Dict,
-                                            learned_ratios: Dict) -> List[Recommendation]:
-        result = await self.session.execute(
-            select(MediaItem).where(
-                MediaItem.video_codec.in_(list(UPGRADE_CODECS))
-            )
+                                            learned_ratios: Dict,
+                                            library_id: Optional[int] = None) -> List[Recommendation]:
+        query = select(MediaItem).where(
+            MediaItem.video_codec.in_(list(UPGRADE_CODECS))
         )
+        if library_id is not None:
+            query = query.where(MediaItem.plex_library_id == library_id)
+        result = await self.session.execute(query)
         items = result.scalars().all()
         recs = []
         for item in items:
@@ -411,17 +519,19 @@ class RecommendationService:
         return recs
 
     async def _analyze_quality_overkill(self, thresholds: Dict,
-                                         learned_ratios: Dict) -> List[Recommendation]:
+                                         learned_ratios: Dict,
+                                         library_id: Optional[int] = None) -> List[Recommendation]:
         min_size = thresholds.get("overkill_min_size_gb", 30) * 1_000_000_000
         max_plays = thresholds.get("overkill_max_plays", 2)
-        result = await self.session.execute(
-            select(MediaItem).where(
-                MediaItem.resolution_tier == "4K",
-                MediaItem.is_hdr == True,  # noqa: E712
-                MediaItem.play_count < max_plays,
-                MediaItem.file_size > min_size,
-            )
+        query = select(MediaItem).where(
+            MediaItem.resolution_tier == "4K",
+            MediaItem.is_hdr == True,  # noqa: E712
+            MediaItem.play_count < max_plays,
+            MediaItem.file_size > min_size,
         )
+        if library_id is not None:
+            query = query.where(MediaItem.plex_library_id == library_id)
+        result = await self.session.execute(query)
         items = result.scalars().all()
         recs = []
         for item in items:
@@ -444,21 +554,23 @@ class RecommendationService:
             recs.append(rec)
         return recs
 
-    async def _detect_duplicates(self) -> List[Recommendation]:
-        result = await self.session.execute(
-            select(MediaItem.title, MediaItem.year, func.count())
-            .group_by(MediaItem.title, MediaItem.year)
-            .having(func.count() > 1)
-        )
+    async def _detect_duplicates(self, library_id: Optional[int] = None) -> List[Recommendation]:
+        dup_query = select(MediaItem.title, MediaItem.year, func.count())
+        if library_id is not None:
+            dup_query = dup_query.where(MediaItem.plex_library_id == library_id)
+        dup_query = dup_query.group_by(MediaItem.title, MediaItem.year).having(func.count() > 1)
+        result = await self.session.execute(dup_query)
         duplicates = result.all()
         recs = []
         for title, year, dup_count in duplicates:
-            items_result = await self.session.execute(
-                select(MediaItem).where(
-                    MediaItem.title == title,
-                    MediaItem.year == year,
-                ).order_by(MediaItem.file_size.desc())
+            items_query = select(MediaItem).where(
+                MediaItem.title == title,
+                MediaItem.year == year,
             )
+            if library_id is not None:
+                items_query = items_query.where(MediaItem.plex_library_id == library_id)
+            items_query = items_query.order_by(MediaItem.file_size.desc())
+            items_result = await self.session.execute(items_query)
             items = items_result.scalars().all()
             if len(items) > 1:
                 savings = sum(i.file_size or 0 for i in items[1:])
@@ -478,19 +590,22 @@ class RecommendationService:
                 recs.append(rec)
         return recs
 
-    async def _analyze_quality_gaps(self, thresholds: Dict) -> List[Recommendation]:
+    async def _analyze_quality_gaps(self, thresholds: Dict,
+                                     library_id: Optional[int] = None) -> List[Recommendation]:
         bitrate_pct = thresholds.get("quality_gap_bitrate_pct", 40) / 100.0
-        avg_result = await self.session.execute(
-            select(func.avg(MediaItem.video_bitrate))
-        )
+        avg_query = select(func.avg(MediaItem.video_bitrate))
+        if library_id is not None:
+            avg_query = avg_query.where(MediaItem.plex_library_id == library_id)
+        avg_result = await self.session.execute(avg_query)
         avg_bitrate = avg_result.scalar() or 0
 
-        result = await self.session.execute(
-            select(MediaItem).where(
-                MediaItem.video_bitrate < avg_bitrate * bitrate_pct,
-                MediaItem.video_bitrate.isnot(None),
-            )
+        query = select(MediaItem).where(
+            MediaItem.video_bitrate < avg_bitrate * bitrate_pct,
+            MediaItem.video_bitrate.isnot(None),
         )
+        if library_id is not None:
+            query = query.where(MediaItem.plex_library_id == library_id)
+        result = await self.session.execute(query)
         items = result.scalars().all()
         recs = []
         for item in items:
@@ -511,15 +626,15 @@ class RecommendationService:
         return recs
 
     async def _analyze_storage_optimization(self, thresholds: Dict,
-                                             learned_ratios: Dict) -> List[Recommendation]:
+                                             learned_ratios: Dict,
+                                             library_id: Optional[int] = None) -> List[Recommendation]:
         min_size = thresholds.get("storage_opt_min_size_gb", 20) * 1_000_000_000
         top_n = thresholds.get("storage_opt_top_n", 20)
-        result = await self.session.execute(
-            select(MediaItem)
-            .where(MediaItem.file_size > min_size)
-            .order_by((MediaItem.file_size / func.max(MediaItem.play_count, 1)).desc())
-            .limit(top_n)
-        )
+        query = select(MediaItem).where(MediaItem.file_size > min_size)
+        if library_id is not None:
+            query = query.where(MediaItem.plex_library_id == library_id)
+        query = query.order_by((MediaItem.file_size / func.max(MediaItem.play_count, 1)).desc()).limit(top_n)
+        result = await self.session.execute(query)
         items = result.scalars().all()
         recs = []
         for item in items:
@@ -543,15 +658,17 @@ class RecommendationService:
 
     # ── New Analyzers ───────────────────────────────────────────────────
 
-    async def _analyze_audio_optimization(self, thresholds: Dict) -> List[Recommendation]:
+    async def _analyze_audio_optimization(self, thresholds: Dict,
+                                           library_id: Optional[int] = None) -> List[Recommendation]:
         """Flag items with high-channel lossless audio that could be downmixed."""
         channel_threshold = thresholds.get("audio_channels_threshold", 6)
-        result = await self.session.execute(
-            select(MediaItem).where(
-                MediaItem.audio_channels >= channel_threshold,
-                MediaItem.audio_codec.isnot(None),
-            )
+        query = select(MediaItem).where(
+            MediaItem.audio_channels >= channel_threshold,
+            MediaItem.audio_codec.isnot(None),
         )
+        if library_id is not None:
+            query = query.where(MediaItem.plex_library_id == library_id)
+        result = await self.session.execute(query)
         items = result.scalars().all()
         recs = []
         for item in items:
@@ -588,13 +705,15 @@ class RecommendationService:
             recs.append(rec)
         return recs
 
-    async def _analyze_container_modernize(self, thresholds: Dict) -> List[Recommendation]:
+    async def _analyze_container_modernize(self, thresholds: Dict,
+                                            library_id: Optional[int] = None) -> List[Recommendation]:
         """Flag old container formats (.avi, .wmv, etc.) for remux to .mkv."""
-        result = await self.session.execute(
-            select(MediaItem).where(
-                MediaItem.container.in_(list(OLD_CONTAINERS))
-            )
+        query = select(MediaItem).where(
+            MediaItem.container.in_(list(OLD_CONTAINERS))
         )
+        if library_id is not None:
+            query = query.where(MediaItem.plex_library_id == library_id)
+        result = await self.session.execute(query)
         items = result.scalars().all()
         recs = []
         for item in items:
@@ -615,15 +734,17 @@ class RecommendationService:
         return recs
 
     async def _analyze_hdr_to_sdr(self, thresholds: Dict,
-                                   learned_ratios: Dict) -> List[Recommendation]:
+                                   learned_ratios: Dict,
+                                   library_id: Optional[int] = None) -> List[Recommendation]:
         """Flag HDR content with low play counts for potential SDR conversion."""
         max_plays = thresholds.get("hdr_max_plays", 3)
-        result = await self.session.execute(
-            select(MediaItem).where(
-                MediaItem.is_hdr == True,  # noqa: E712
-                MediaItem.play_count <= max_plays,
-            )
+        query = select(MediaItem).where(
+            MediaItem.is_hdr == True,  # noqa: E712
+            MediaItem.play_count <= max_plays,
         )
+        if library_id is not None:
+            query = query.where(MediaItem.plex_library_id == library_id)
+        result = await self.session.execute(query)
         items = result.scalars().all()
         recs = []
         for item in items:
@@ -646,22 +767,25 @@ class RecommendationService:
         return recs
 
     async def _analyze_batch_similar(self, thresholds: Dict,
-                                      learned_ratios: Dict) -> List[Recommendation]:
+                                      learned_ratios: Dict,
+                                      library_id: Optional[int] = None) -> List[Recommendation]:
         """Group items by (codec, resolution, library) and flag large groups for batch transcode."""
         min_group = thresholds.get("batch_min_group_size", 5)
-        result = await self.session.execute(
-            select(
-                MediaItem.video_codec,
-                MediaItem.resolution_tier,
-                MediaItem.plex_library_id,
-                func.count(),
-                func.sum(MediaItem.file_size),
-            ).where(
-                MediaItem.video_codec.in_(list(UPGRADE_CODECS)),
-            ).group_by(
-                MediaItem.video_codec, MediaItem.resolution_tier, MediaItem.plex_library_id
-            ).having(func.count() >= min_group)
+        batch_query = select(
+            MediaItem.video_codec,
+            MediaItem.resolution_tier,
+            MediaItem.plex_library_id,
+            func.count(),
+            func.sum(MediaItem.file_size),
+        ).where(
+            MediaItem.video_codec.in_(list(UPGRADE_CODECS)),
         )
+        if library_id is not None:
+            batch_query = batch_query.where(MediaItem.plex_library_id == library_id)
+        batch_query = batch_query.group_by(
+            MediaItem.video_codec, MediaItem.resolution_tier, MediaItem.plex_library_id
+        ).having(func.count() >= min_group)
+        result = await self.session.execute(batch_query)
         groups = result.all()
         recs = []
         for codec, res, lib_id, count, total_size in groups:

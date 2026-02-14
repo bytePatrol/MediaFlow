@@ -30,7 +30,7 @@ async def init_database():
         plex_server, plex_library, media_item, transcode_preset,
         transcode_job, worker_server, job_log, recommendation,
         custom_tag, notification_config, app_settings, filter_preset,
-        server_benchmark, cloud_cost,
+        server_benchmark, cloud_cost, notification_log,
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -73,6 +73,8 @@ async def _run_migrations(conn):
         ("recommendations", "analysis_run_id", "INTEGER REFERENCES analysis_runs(id)"),
         ("notification_configs", "last_triggered_at", "DATETIME"),
         ("notification_configs", "trigger_count", "INTEGER DEFAULT 0"),
+        # Pre-upload pipeline
+        ("transcode_jobs", "source_prestaged", "BOOLEAN DEFAULT 0"),
     ]
     for table, column, col_type in migrations:
         try:

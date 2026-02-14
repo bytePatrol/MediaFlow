@@ -85,7 +85,7 @@ struct OnboardingView: View {
                 Spacer()
             }
         }
-        .onChange(of: plexAuth.authState) { newState in
+        .onChange(of: plexAuth.authState) { _, newState in
             if case .success = newState {
                 Task {
                     let backend = BackendService()

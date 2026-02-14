@@ -143,6 +143,7 @@ struct LibraryDashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(showFilterSidebar ? .mfPrimary : .mfTextMuted)
+                .hoverHighlight()
 
                 // Filter presets
                 if !filterPresets.isEmpty {
@@ -273,6 +274,7 @@ struct LibraryDashboardView: View {
             .foregroundColor(viewModel.selectedItems.isEmpty ? .mfTextMuted : .mfTextPrimary)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.mfGlassBorder))
+            .hoverHighlight()
         }
         .buttonStyle(.plain)
         .disabled(viewModel.selectedItems.isEmpty)
@@ -410,6 +412,7 @@ struct LibraryDashboardView: View {
             .foregroundColor(viewModel.selectedItems.isEmpty ? .mfTextMuted : .mfTextPrimary)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.mfGlassBorder))
+            .hoverHighlight()
         }
         .buttonStyle(.plain)
         .disabled(viewModel.selectedItems.isEmpty)
@@ -444,6 +447,7 @@ struct LibraryDashboardView: View {
                     .font(.system(size: 12, weight: .medium))
             }
             .primaryButton()
+            .hoverHighlight()
         }
         .buttonStyle(.plain)
         .disabled(viewModel.selectedItems.isEmpty)

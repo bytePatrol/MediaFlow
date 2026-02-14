@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Optional, List, Dict, Any
 
@@ -5,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.notification_config import NotificationConfig
+from app.models.notification_log import NotificationLog
+from app.database import async_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +27,48 @@ class NotificationService:
             if event in events or "*" in events:
                 try:
                     await self._dispatch(config, event, data)
+                    await self._log_dispatch(
+                        event=event,
+                        channel_type=config.type,
+                        channel_name=config.name,
+                        data=data,
+                        status="sent",
+                    )
                 except Exception as e:
                     logger.error(f"Notification dispatch failed for {config.name}: {e}")
+                    await self._log_dispatch(
+                        event=event,
+                        channel_type=config.type,
+                        channel_name=config.name,
+                        data=data,
+                        status="failed",
+                        error_message=str(e),
+                    )
+
+    async def _log_dispatch(
+        self,
+        event: str,
+        channel_type: str,
+        channel_name: str,
+        data: Dict[str, Any],
+        status: str = "sent",
+        error_message: Optional[str] = None,
+    ):
+        """Log a notification dispatch to the notification_logs table."""
+        try:
+            async with async_session_factory() as log_session:
+                log_entry = NotificationLog(
+                    event=event,
+                    channel_type=channel_type,
+                    channel_name=channel_name,
+                    payload_json=json.dumps(data, default=str),
+                    status=status,
+                    error_message=error_message,
+                )
+                log_session.add(log_entry)
+                await log_session.commit()
+        except Exception as e:
+            logger.error(f"Failed to log notification dispatch: {e}")
 
     async def _dispatch(self, config: NotificationConfig, event: str, data: Dict[str, Any]):
         if config.type == "webhook":

@@ -103,3 +103,21 @@ struct NotificationEventInfo: Codable, Identifiable {
     let event: String
     let description: String
 }
+
+// MARK: - Notification History
+
+struct NotificationLogInfo: Codable, Identifiable {
+    let id: Int
+    let event: String
+    let channelType: String
+    let channelName: String?
+    let payloadJson: String?
+    let status: String
+    let errorMessage: String?
+    let createdAt: String?
+}
+
+struct NotificationHistoryResponse: Codable {
+    let items: [NotificationLogInfo]
+    let total: Int
+}

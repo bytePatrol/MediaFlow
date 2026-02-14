@@ -38,6 +38,29 @@ struct AnalyticsDashboardView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
 
                     Button {
+                        viewModel.exportPDF()
+                    } label: {
+                        HStack(spacing: 5) {
+                            if viewModel.isExportingPDF {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            } else {
+                                Image(systemName: "arrow.down.doc.fill")
+                                    .font(.system(size: 11))
+                            }
+                            Text("Export PDF")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(.mfTextSecondary)
+                        .padding(.horizontal, 10)
+                        .frame(height: 32)
+                        .background(Color.mfSurfaceLight)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.isExportingPDF)
+
+                    Button {
                         Task { await viewModel.refresh() }
                     } label: {
                         Image(systemName: "arrow.clockwise")
@@ -157,6 +180,7 @@ struct AnalyticsDashboardView: View {
         }
         .padding(20)
         .cardStyle()
+        .hoverCard()
     }
 
     private func healthMetricBar(label: String, value: Double) -> some View {
@@ -229,6 +253,7 @@ struct AnalyticsDashboardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .cardStyle()
+        .hoverCard()
     }
 
     // MARK: - Predictions Card

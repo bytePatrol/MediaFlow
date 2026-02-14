@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UserNotifications
 
 @main
 struct MediaFlowApp: App {
@@ -11,6 +12,13 @@ struct MediaFlowApp: App {
            let image = NSImage(contentsOf: url) {
             NSApplication.shared.applicationIconImage = image
         }
+
+        // Set up local notification delegate and request permission
+        // Guard: UNUserNotificationCenter crashes in SPM builds without a bundle identifier
+        if Bundle.main.bundleIdentifier != nil {
+            UNUserNotificationCenter.current().delegate = NotificationService.shared
+        }
+        NotificationService.shared.requestPermission()
     }
 
     var body: some Scene {

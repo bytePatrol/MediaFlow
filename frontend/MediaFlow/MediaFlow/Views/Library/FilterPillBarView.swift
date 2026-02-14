@@ -35,6 +35,7 @@ struct FilterPillBarView: View {
                         .background(Color.mfPrimary.opacity(0.1))
                         .clipShape(Capsule())
                         .overlay(Capsule().stroke(Color.mfPrimary.opacity(0.3), lineWidth: 1))
+                        .hoverHighlight()
                     }
 
                     Button {

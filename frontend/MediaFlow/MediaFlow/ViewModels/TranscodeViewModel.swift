@@ -29,6 +29,7 @@ class TranscodeViewModel: ObservableObject {
     @Published var totalJobs: Int = 0
     @Published var jobLogMessages: [Int: [String]] = [:]
     @Published var jobTransferProgress: [Int: TransferProgress] = [:]
+    @Published var jobPreuploadProgress: [Int: TransferProgress] = [:]
     @Published var jobPhaseLabel: [Int: String] = [:]
     @Published var cloudApiKeyConfigured: Bool = false
     @Published var isDeployingCloud: Bool = false
@@ -132,6 +133,7 @@ class TranscodeViewModel: ObservableObject {
             activeJobs = jobs.filter { $0.isActive }
         }
         jobTransferProgress.removeValue(forKey: jobId)
+        jobPreuploadProgress.removeValue(forKey: jobId)
 
         let client = APIClient(baseURL: service.client.baseURL)
         struct UpdateReq: Codable { let status: String }
@@ -152,6 +154,7 @@ class TranscodeViewModel: ObservableObject {
         try? await client.delete("/api/transcode/jobs/finished?include_active=true")
         jobLogMessages.removeAll()
         jobTransferProgress.removeAll()
+        jobPreuploadProgress.removeAll()
         await loadJobs()
         await loadQueueStats()
     }
@@ -235,6 +238,28 @@ class TranscodeViewModel: ObservableObject {
             }
         }
 
+        ws.subscribe(to: "job.preupload_progress") { [weak self] msg in
+            Task { @MainActor [weak self] in
+                guard let self = self,
+                      let jobId = msg.data["job_id"]?.intValue else { return }
+                var tp = TransferProgress()
+                tp.direction = "upload"
+                tp.label = msg.data["label"]?.stringValue ?? "Pre-uploading"
+                tp.progress = msg.data["progress"]?.doubleValue ?? 0
+                tp.speed = msg.data["speed"]?.stringValue ?? "--"
+                tp.etaSeconds = msg.data["eta_seconds"]?.intValue ?? 0
+                self.jobPreuploadProgress[jobId] = tp
+            }
+        }
+
+        ws.subscribe(to: "job.preupload_completed") { [weak self] msg in
+            Task { @MainActor [weak self] in
+                guard let self = self,
+                      let jobId = msg.data["job_id"]?.intValue else { return }
+                self.jobPreuploadProgress.removeValue(forKey: jobId)
+            }
+        }
+
         ws.subscribe(to: "job.status_changed") { [weak self] msg in
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
@@ -247,6 +272,7 @@ class TranscodeViewModel: ObservableObject {
                     if status != "transferring" {
                         self.jobTransferProgress.removeValue(forKey: jobId)
                     }
+                    self.jobPreuploadProgress.removeValue(forKey: jobId)
                     self.jobPhaseLabel.removeValue(forKey: jobId)
                     self.jobLogMessages.removeValue(forKey: jobId)
                 }

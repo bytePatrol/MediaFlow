@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -342,7 +343,17 @@ async def _reassign_unassigned_jobs(worker_server_id: int):
             effective_input = resolved_path or job.source_path
             builder = FFmpegCommandBuilder(config, effective_input)
             ffmpeg_command = builder.build()
-            output_path = builder._get_output_path()
+
+            # Preserve V2 naming for manual jobs (media_item_id is None)
+            if job.media_item_id is None:
+                source_stem = os.path.splitext(os.path.basename(job.source_path))[0]
+                container = config.get("container", "mkv")
+                output_path = os.path.join(
+                    os.path.dirname(effective_input),
+                    f"{source_stem} V2.{container}",
+                )
+            else:
+                output_path = builder._get_output_path()
 
             job.worker_server_id = worker_server_id
             job.transfer_mode = mode

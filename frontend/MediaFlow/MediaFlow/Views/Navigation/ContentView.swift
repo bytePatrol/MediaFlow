@@ -29,6 +29,8 @@ struct ContentView: View {
                         SettingsView()
                     case .logs:
                         LogsView()
+                    case .help:
+                        HelpView()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -105,6 +107,9 @@ struct ContentView: View {
                     .hidden()
                 Button("") { appState.selectedNavItem = .logs }
                     .keyboardShortcut("8", modifiers: .command)
+                    .hidden()
+                Button("") { appState.selectedNavItem = .help }
+                    .keyboardShortcut("9", modifiers: .command)
                     .hidden()
             }
         )

@@ -28,6 +28,7 @@ class TranscodeJob(Base):
     checkpoint_frame = Column(Integer, nullable=True)
     scheduled_after = Column(DateTime, nullable=True)
     status_detail = Column(String(500), nullable=True)
+    source_prestaged = Column(Boolean, default=False)
     is_dry_run = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

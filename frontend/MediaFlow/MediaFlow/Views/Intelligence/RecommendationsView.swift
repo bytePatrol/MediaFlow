@@ -53,7 +53,9 @@ struct RecommendationsView: View {
                         } else {
                             Image(systemName: "brain")
                         }
-                        Text(viewModel.isGenerating ? "Analyzing..." : "Run Analysis")
+                        Text(viewModel.isGenerating
+                             ? "Analyzing..."
+                             : (viewModel.selectedLibraryId != nil ? "Analyze Library" : "Run Analysis"))
                     }
                     .primaryButton()
                 }
@@ -62,18 +64,36 @@ struct RecommendationsView: View {
             }
             .padding(24)
 
-            // Savings achieved banner
-            if let savings = viewModel.savingsAchieved, savings.totalJobs > 0 {
-                HStack(spacing: 16) {
+            // Library filter + Savings achieved banner
+            HStack(spacing: 12) {
+                // Library filter picker
+                HStack(spacing: 6) {
+                    Image(systemName: "building.columns")
+                        .font(.system(size: 11))
+                        .foregroundColor(.mfTextMuted)
+                    Picker("Library", selection: $viewModel.selectedLibraryId) {
+                        Text("All Libraries").tag(nil as Int?)
+                        ForEach(viewModel.librarySections) { section in
+                            Text(section.title).tag(section.id as Int?)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 200)
+                    .onChange(of: viewModel.selectedLibraryId) { _, _ in
+                        Task { await viewModel.loadRecommendations() }
+                    }
+                }
+
+                if let savings = viewModel.savingsAchieved, savings.totalJobs > 0 {
+                    Spacer()
+
                     Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 16))
+                        .font(.system(size: 14))
                         .foregroundColor(.mfSuccess)
 
-                    Text("\(savings.totalSaved.formattedFileSize) saved from \(savings.totalJobs) completed job\(savings.totalJobs == 1 ? "" : "s")")
+                    Text("\(savings.totalSaved.formattedFileSize) saved from \(savings.totalJobs) job\(savings.totalJobs == 1 ? "" : "s")")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.mfTextSecondary)
-
-                    Spacer()
 
                     // Last run indicator
                     if let lastRun = viewModel.analysisHistory.first {
@@ -99,11 +119,13 @@ struct RecommendationsView: View {
                         .foregroundColor(.mfTextMuted)
                     }
                     .buttonStyle(.plain)
+                } else {
+                    Spacer()
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 10)
-                .background(Color.mfSuccess.opacity(0.06))
             }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 10)
+            .background(Color.mfSuccess.opacity(0.03))
 
             // Analysis history (expandable)
             if showHistory && !viewModel.analysisHistory.isEmpty {
@@ -173,15 +195,50 @@ struct RecommendationsView: View {
 
             Divider().background(Color.mfGlassBorder)
 
-            // Recommendations List
+            // Recommendations List — grouped by category
             ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(viewModel.recommendations) { rec in
-                        RecommendationCardView(recommendation: rec, onDismiss: {
-                            Task { await viewModel.dismissRecommendation(rec.id) }
-                        }, onQueue: {
-                            Task { await viewModel.queueRecommendation(rec.id) }
-                        })
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    if viewModel.selectedType != nil {
+                        // When a specific type is selected, show flat list (already filtered)
+                        ForEach(viewModel.recommendations) { rec in
+                            RecommendationCardView(recommendation: rec, onDismiss: {
+                                Task { await viewModel.dismissRecommendation(rec.id) }
+                            }, onQueue: {
+                                Task { await viewModel.queueRecommendation(rec.id) }
+                            })
+                        }
+                    } else {
+                        // Group by category with section headers
+                        ForEach(viewModel.groupedRecommendations, id: \.0) { category, recs in
+                            VStack(alignment: .leading, spacing: 8) {
+                                // Section header
+                                HStack(spacing: 8) {
+                                    Image(systemName: categoryIcon(category))
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.mfPrimary)
+                                    Text(categoryDisplayName(category))
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.mfTextPrimary)
+                                    Text("\(recs.count)")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.mfTextMuted)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.mfSurface)
+                                        .clipShape(Capsule())
+                                    Spacer()
+                                }
+                                .padding(.top, 8)
+
+                                ForEach(recs) { rec in
+                                    RecommendationCardView(recommendation: rec, onDismiss: {
+                                        Task { await viewModel.dismissRecommendation(rec.id) }
+                                    }, onQueue: {
+                                        Task { await viewModel.queueRecommendation(rec.id) }
+                                    })
+                                }
+                            }
+                        }
                     }
 
                     if viewModel.recommendations.isEmpty && !viewModel.isLoading {
@@ -205,6 +262,36 @@ struct RecommendationsView: View {
         }
         .background(Color.mfBackground)
         .task { await viewModel.loadRecommendations() }
+    }
+
+    private func categoryDisplayName(_ type: String) -> String {
+        switch type {
+        case "codec_upgrade": return "Codec Upgrade"
+        case "quality_overkill": return "Quality Overkill"
+        case "duplicate": return "Duplicates"
+        case "low_quality": return "Low Quality"
+        case "storage_optimization": return "Storage Optimization"
+        case "audio_optimization": return "Audio Optimization"
+        case "container_modernize": return "Container Modernize"
+        case "hdr_to_sdr": return "HDR to SDR"
+        case "batch_similar": return "Batch Transcode"
+        default: return type.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    private func categoryIcon(_ type: String) -> String {
+        switch type {
+        case "codec_upgrade": return "arrow.up.circle"
+        case "quality_overkill": return "exclamationmark.triangle"
+        case "duplicate": return "doc.on.doc"
+        case "low_quality": return "arrow.down.circle"
+        case "storage_optimization": return "externaldrive"
+        case "audio_optimization": return "speaker.wave.3"
+        case "container_modernize": return "shippingbox"
+        case "hdr_to_sdr": return "sun.max"
+        case "batch_similar": return "square.stack.3d.up"
+        default: return "lightbulb"
+        }
     }
 
     private func formatTimestamp(_ iso: String) -> String {

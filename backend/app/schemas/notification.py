@@ -47,3 +47,21 @@ NOTIFICATION_EVENTS = {
 class NotificationEventInfo(BaseModel):
     event: str
     description: str
+
+
+class NotificationLogResponse(BaseModel):
+    id: int
+    event: str
+    channel_type: str
+    channel_name: Optional[str] = None
+    payload_json: Optional[str] = None
+    status: str
+    error_message: Optional[str] = None
+    created_at: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class NotificationHistoryResponse(BaseModel):
+    items: List[NotificationLogResponse]
+    total: int

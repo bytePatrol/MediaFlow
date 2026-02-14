@@ -9,6 +9,7 @@ enum NavigationItem: String, CaseIterable, Identifiable {
     case intelligence = "Intelligence"
     case settings = "Settings"
     case logs = "Logs"
+    case help = "Help"
 
     var id: String { rawValue }
 
@@ -22,6 +23,7 @@ enum NavigationItem: String, CaseIterable, Identifiable {
         case .intelligence: return "brain"
         case .settings: return "gear"
         case .logs: return "doc.text.magnifyingglass"
+        case .help: return "questionmark.circle"
         }
     }
 

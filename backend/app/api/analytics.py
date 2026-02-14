@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
+import io
 
 from app.database import get_session
 from app.services.analytics_service import AnalyticsService
+from app.services.report_service import ReportService
 from app.schemas.analytics import (
     AnalyticsOverview, StorageBreakdown, CodecDistribution,
     ResolutionDistribution, SavingsHistoryPoint, JobHistoryEntry,
@@ -12,6 +15,19 @@ from app.schemas.analytics import (
 )
 
 router = APIRouter()
+
+
+@router.get("/report/pdf")
+async def get_health_report_pdf(session: AsyncSession = Depends(get_session)):
+    service = ReportService(session)
+    pdf_bytes = await service.generate_health_report()
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="mediaflow-health-report.pdf"'
+        },
+    )
 
 
 @router.get("/overview", response_model=AnalyticsOverview)

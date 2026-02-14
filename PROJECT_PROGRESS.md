@@ -634,6 +634,90 @@ New models: `AnalyticsModels.swift` (11 types), enhanced `AnalyticsViewModel.swi
 
 ---
 
+## Pre-Upload Pipeline & Transfer Optimizations (2026-02-13 session 2)
+
+Major performance session: pre-upload pipeline, parallel multi-stream transfers, NVENC fallback system, and subtitle muxing fix.
+
+### Pre-Upload Pipeline (source_prestaged)
+
+**Feature**: While the GPU transcodes the current job, automatically start uploading the next queued job's source file so it's ready immediately when the GPU finishes.
+
+**Backend changes**:
+1. **`source_prestaged` column** on `TranscodeJob` — Boolean flag tracking whether source was pre-uploaded
+2. **`_resolve_local_source()` helper** — Extracted from `_execute_remote_transfer()`, resolves local path via path mappings and NAS SSH. Returns `(local_source, pulled_from_nas, nas_ssh, plex_server)`.
+3. **`_start_preupload_next_job(worker, ssh)`** — Called after ffmpeg starts. Queries next queued `ssh_transfer` job on same worker, launches `_preupload_source()` as background task.
+4. **`_preupload_source(job_id, worker)`** — Background coroutine: own DB session, resolves source, fresh SSH connection, uploads to worker, sets `source_prestaged=True`, broadcasts `job.preupload_progress`.
+5. **Pre-stage check in `_execute_remote_transfer()`** — Before upload, checks `job.source_prestaged` and verifies remote file exists via SSH `test -f`. Skips upload if pre-staged.
+6. **Cleanup** — Cancel preupload on job cancel, reset `source_prestaged` on orphan recovery.
+
+**Frontend changes**:
+- `TranscodeViewModel` tracks `jobPreuploadProgress` dict, subscribes to `job.preupload_progress` WebSocket events
+- `TranscodeJobCardView` shows "Pre-uploading X% @ speed" with muted progress bar on queued jobs
+- `ProcessingQueueView` passes preupload progress to job cards
+
+### Parallel Multi-Stream SSH Transfers
+
+**Problem**: Single-stream transfers maxed at ~220 Mbps (rsync) or ~60 Mbps (SFTP).
+
+**Solution**: 4 parallel `dd | ssh dd` pipes for files > 100MB:
+- **Upload** (`_parallel_ssh_upload`): Pre-allocates remote file with `truncate -s`, splits file into segments on 1MB boundaries, each stream writes at offset with `dd seek=N conv=notrunc`. Background progress poller uses persistent SSH to `stat -c %b` (512-byte block count) on remote sparse file every 1 second.
+- **Download** (`_parallel_ssh_download`): Same approach, pre-allocates local file, polls `os.stat().st_blocks` for progress.
+- **Priority order**: parallel SSH (>100MB) → rsync → SFTP
+
+**SSH optimizations in `_ssh_cmd_args()`**:
+- `-c aes128-gcm@openssh.com` — hardware-accelerated AES-NI cipher (vs chacha20 software)
+- `-o Compression=no` — skip compression for already-compressed media files
+
+**rsync fixes**:
+- `--progress` instead of `--info=progress2` — macOS ships `openrsync` which doesn't support `--info=progress2`
+- `--whole-file` — skip delta algorithm (new files, not incremental sync)
+- Progress parsing updated for `\r` and `\n` delimiters (openrsync format)
+
+### NVENC/CUDA Fallback System
+
+**2-stage fallback in `_execute_remote_transfer()`** when ffmpeg fails:
+1. **Fallback 1**: If `hw_accel` was set (CUDA decode) and ffmpeg fails → retry without `-hwaccel cuda` but keep NVENC encode (CPU decode + GPU encode)
+2. **Fallback 2**: If NVENC encode also fails → fall back to full CPU encoding via `NVENC_CPU_FALLBACK` map (`hevc_nvenc→libx265`, `h264_nvenc→libx264`, `av1_nvenc→libsvtav1`)
+
+**Execution-time NVENC upgrade**: `_maybe_upgrade_to_nvenc()` called right before building the remote ffmpeg command in `_execute_remote_transfer()` — prevents lost upgrades from backend reloads during commit.
+
+**CUDA hardware decode for cloud workers**: `_maybe_upgrade_to_nvenc()` sets `config["hw_accel"] = "nvenc"` for cloud workers (Jellyfin ffmpeg built with `--enable-cuda --enable-cuvid --enable-nvdec`). Also handles already-NVENC codecs (not just CPU→NVENC upgrades).
+
+### Subtitle Muxing Fix
+
+**Problem**: `mov_text` subtitles (MP4-specific format) can't be copied to MKV container. `ffmpeg -c:s copy` fails with "Subtitle codec 94213 is not supported" and exit 218.
+
+**Fix**: `FFmpegCommandBuilder._build_subtitle_args()` now uses `-c:s srt` for MKV output (converts text subs to SRT, universally MKV-compatible). MP4 output still uses `-c:s copy`.
+
+### Download Progress Fix
+
+**Problem**: `download_file()` wasn't receiving `total_size` parameter, so parallel SSH download was never used and progress showed 0%.
+
+**Fix**: Pass `total_size=dl_total` to `ssh.download_file()` in `_execute_remote_transfer()`.
+
+### Files Modified
+- `backend/app/models/transcode_job.py` — `source_prestaged` column
+- `backend/app/database.py` — migration entry
+- `backend/app/workers/transcode_worker.py` — Pre-upload pipeline, NVENC fallback, download fix, execution-time upgrade
+- `backend/app/services/transcode_service.py` — CUDA hw_accel for cloud workers, handle already-NVENC codecs
+- `backend/app/utils/ssh.py` — Parallel SSH upload/download, rsync fixes, SSH cipher/compression tuning
+- `backend/app/utils/ffmpeg.py` — Subtitle SRT conversion for MKV output
+- `frontend/.../ViewModels/TranscodeViewModel.swift` — Preupload progress tracking
+- `frontend/.../Views/Transcode/TranscodeJobCardView.swift` — Preupload progress UI
+- `frontend/.../Views/Transcode/ProcessingQueueView.swift` — Pass preupload progress to cards
+- `frontend/.../Services/WebSocketService.swift` — Preupload event handling
+
+### Status at End of Session
+- Pre-upload pipeline implemented and building
+- Parallel SSH transfers implemented with progress polling
+- Subtitle muxing fix verified working (SRT for MKV)
+- CUDA hardware decode re-enabled for cloud workers (exit-218 was subtitle issue, not CUDA)
+- `_maybe_upgrade_to_nvenc()` now handles already-NVENC codecs (sets hw_accel even when codec isn't being upgraded)
+- **In-progress job running**: Lilo & Stitch [2002] transcoding on cloud GPU — may need to verify CUDA decode is working after latest fix
+- **Known issue**: Backend auto-reload from code edits kills in-progress jobs (orphan recovery restarts from scratch)
+
+---
+
 ## Known Issues & Tech Debt
 
 1. **SettingsView.swift:187** — Uses deprecated `onChange(of:perform:)` API. Should update to zero-parameter closure variant for macOS 14+.
@@ -689,6 +773,11 @@ asyncssh>=2.14.0
 
 ## What to Work On Next
 
+### Immediate (resume here)
+1. **Verify CUDA hardware decode works** — Latest fix: `_maybe_upgrade_to_nvenc()` now sets `hw_accel="nvenc"` even when codec is already NVENC (e.g., `h264_nvenc`). Need to confirm `-hwaccel cuda` appears in ffmpeg command and gives significant FPS boost over CPU decode. Test by queuing a Quick Transcode job on cloud GPU.
+2. **Test pre-upload pipeline end-to-end** — Queue 2+ jobs targeting same cloud GPU worker. Verify: first job uploads normally, during transcode the second job's source pre-uploads, second job skips upload and starts transcoding immediately.
+3. **Verify parallel SSH download with progress** — Download now passes `total_size`, so parallel SSH should be used for large outputs. Check download speed and progress reporting.
+
 ### Previously Completed
 - ~~Test full cloud transcode cycle~~ — **DONE** (2026-02-11). End-to-end working at 561 FPS with NVENC.
 - ~~Path mappings UI~~ — **DONE** (2026-02-12).
@@ -697,6 +786,7 @@ asyncssh>=2.14.0
 - ~~Manual Transcode / Quick Transcode~~ — **DONE** (2026-02-12).
 - ~~Intelligence system improvements (8x)~~ — **DONE** (2026-02-12). Learned ratios, priority scoring, auto-analyze, configurable thresholds, audio/container/HDR/batch analyzers, analysis run tracking.
 - ~~Premium Polish (analytics, UX, notifications)~~ — **DONE** (2026-02-13). 9-section analytics dashboard, 5 notification channels, onboarding wizard, keyboard shortcuts, context menus, filter presets, destructive action confirmations.
+- ~~Pre-upload pipeline~~ — **DONE** (2026-02-13). Source pre-staging, parallel SSH transfers, subtitle fix, NVENC fallback system. Needs end-to-end verification.
 
 ### Medium Priority
 1. **Custom tagging system frontend** — Backend model (CustomTag, MediaTag) exists. Need UI for creating tags, applying to media items, filtering by tags.

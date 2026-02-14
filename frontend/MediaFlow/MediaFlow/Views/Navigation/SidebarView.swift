@@ -30,7 +30,7 @@ struct SidebarView: View {
 
             // Nav Items
             VStack(spacing: 4) {
-                ForEach(NavigationItem.allCases) { item in
+                ForEach(NavigationItem.allCases.filter { $0 != .help }) { item in
                     SidebarNavButton(item: item, isSelected: appState.selectedNavItem == item) {
                         appState.selectedNavItem = item
                     }
@@ -40,6 +40,18 @@ struct SidebarView: View {
             .padding(.top, 16)
 
             Spacer()
+
+            // Help (separated at bottom)
+            Divider()
+                .background(Color.mfGlassBorder)
+
+            VStack(spacing: 4) {
+                SidebarNavButton(item: .help, isSelected: appState.selectedNavItem == .help) {
+                    appState.selectedNavItem = .help
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
 
             // Connection Status
             Divider()
@@ -92,6 +104,7 @@ struct SidebarNavButton: View {
             .padding(.vertical, item.isSubItem ? 6 : 8)
             .background(isSelected ? Color.mfPrimary.opacity(0.1) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 8))
+            .hoverHighlight()
         }
         .buttonStyle(.plain)
     }

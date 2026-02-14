@@ -6,9 +6,11 @@ class RecommendationViewModel: ObservableObject {
     @Published var summary: RecommendationSummary?
     @Published var analysisHistory: [AnalysisRunInfo] = []
     @Published var savingsAchieved: SavingsAchievedInfo?
+    @Published var librarySections: [LibrarySection] = []
     @Published var isLoading: Bool = false
     @Published var isGenerating: Bool = false
     @Published var selectedType: String? = nil
+    @Published var selectedLibraryId: Int? = nil
 
     private let service: BackendService
 
@@ -16,18 +18,43 @@ class RecommendationViewModel: ObservableObject {
         self.service = service
     }
 
+    /// Grouped recommendations by category for section display
+    var groupedRecommendations: [(String, [Recommendation])] {
+        let categoryOrder = [
+            "codec_upgrade", "quality_overkill", "duplicate", "low_quality",
+            "storage_optimization", "audio_optimization", "container_modernize",
+            "hdr_to_sdr", "batch_similar",
+        ]
+        let grouped = Dictionary(grouping: recommendations, by: { $0.type })
+        var result: [(String, [Recommendation])] = []
+        for category in categoryOrder {
+            if let recs = grouped[category], !recs.isEmpty {
+                result.append((category, recs))
+            }
+        }
+        // Include any types not in the predefined order
+        for (category, recs) in grouped {
+            if !categoryOrder.contains(category) && !recs.isEmpty {
+                result.append((category, recs))
+            }
+        }
+        return result
+    }
+
     func loadRecommendations() async {
         isLoading = true
         do {
-            async let recsReq = service.getRecommendations(type: selectedType)
+            async let recsReq = service.getRecommendations(type: selectedType, libraryId: selectedLibraryId)
             async let summaryReq = service.getRecommendationSummary()
             async let historyReq = service.getAnalysisHistory(limit: 10)
             async let savingsReq = service.getSavingsAchieved()
-            let (recs, sum, hist, sav) = try await (recsReq, summaryReq, historyReq, savingsReq)
+            async let sectionsReq = service.getLibrarySections()
+            let (recs, sum, hist, sav, sections) = try await (recsReq, summaryReq, historyReq, savingsReq, sectionsReq)
             recommendations = recs
             summary = sum
             analysisHistory = hist
             savingsAchieved = sav
+            librarySections = sections
         } catch {
             print("Failed to load recommendations: \(error)")
         }
@@ -37,7 +64,11 @@ class RecommendationViewModel: ObservableObject {
     func runAnalysis() async {
         isGenerating = true
         do {
-            let _ = try await service.generateRecommendations()
+            if let libraryId = selectedLibraryId {
+                let _ = try await service.analyzeLibrary(libraryId: libraryId)
+            } else {
+                let _ = try await service.generateRecommendations()
+            }
             await loadRecommendations()
         } catch {
             print("Failed to generate: \(error)")

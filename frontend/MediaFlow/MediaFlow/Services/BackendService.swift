@@ -283,15 +283,24 @@ class BackendService {
         return try await client.get("/api/analytics/top-opportunities")
     }
 
+    func downloadHealthReport() async throws -> Data {
+        return try await client.getRaw("/api/analytics/report/pdf")
+    }
+
     // MARK: - Recommendations
-    func getRecommendations(type: String? = nil) async throws -> [Recommendation] {
+    func getRecommendations(type: String? = nil, libraryId: Int? = nil) async throws -> [Recommendation] {
         var items: [URLQueryItem] = []
         if let type = type { items.append(URLQueryItem(name: "type", value: type)) }
+        if let libraryId = libraryId { items.append(URLQueryItem(name: "library_id", value: "\(libraryId)")) }
         return try await client.get("/api/recommendations/", queryItems: items)
     }
 
     func generateRecommendations() async throws -> GenerateResponse {
         return try await client.post("/api/recommendations/generate")
+    }
+
+    func analyzeLibrary(libraryId: Int) async throws -> GenerateResponse {
+        return try await client.post("/api/recommendations/analyze/\(libraryId)")
     }
 
     func getRecommendationSummary() async throws -> RecommendationSummary {
@@ -321,6 +330,15 @@ class BackendService {
         return try await client.put("/api/settings/\(key)", body: ["value": value])
     }
 
+    // MARK: - Schedule Settings
+    func getScheduleSetting(key: String) async throws -> AppSettingValue {
+        return try await client.get("/api/settings/\(key)")
+    }
+
+    func setScheduleSetting(key: String, value: String) async throws -> AppSettingValue {
+        return try await client.put("/api/settings/\(key)", body: ["value": value])
+    }
+
     // MARK: - Filter Presets
     func getFilterPresets() async throws -> [FilterPresetInfo] {
         return try await client.get("/api/filter-presets/")
@@ -337,6 +355,11 @@ class BackendService {
     // MARK: - Notification Events
     func getNotificationEvents() async throws -> [NotificationEventInfo] {
         return try await client.get("/api/notifications/events")
+    }
+
+    func getNotificationHistory(limit: Int = 50) async throws -> NotificationHistoryResponse {
+        let items = [URLQueryItem(name: "limit", value: "\(limit)")]
+        return try await client.get("/api/notifications/history", queryItems: items)
     }
 }
 

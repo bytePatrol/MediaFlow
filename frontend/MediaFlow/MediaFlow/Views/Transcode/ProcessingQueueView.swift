@@ -5,6 +5,7 @@ struct ProcessingQueueView: View {
     @State private var showClearConfirm = false
     @State private var showClearCacheConfirm = false
     @State private var showPauseConfirm = false
+    @State private var cloudDeployPanel = CloudDeployPanel()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -134,7 +135,9 @@ struct ProcessingQueueView: View {
                         Spacer()
                         if viewModel.cloudApiKeyConfigured {
                             Button {
-                                Task { await viewModel.deployCloudGPU() }
+                                cloudDeployPanel.show {
+                                    viewModel.isDeployingCloud = true
+                                }
                             } label: {
                                 HStack(spacing: 5) {
                                     Image(systemName: "cloud.bolt.fill")
@@ -205,6 +208,7 @@ struct ProcessingQueueView: View {
                                 job: job,
                                 logMessages: viewModel.jobLogMessages[job.id] ?? [],
                                 transferProgress: viewModel.jobTransferProgress[job.id],
+                                preuploadProgress: viewModel.jobPreuploadProgress[job.id],
                                 phaseLabel: viewModel.jobPhaseLabel[job.id],
                                 onCancel: {
                                     Task { await viewModel.cancelJob(job.id) }

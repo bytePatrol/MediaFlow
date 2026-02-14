@@ -540,6 +540,7 @@ struct ServerCardView: View {
         .background(Color.mfSurface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.mfPrimary.opacity(0.1)))
+        .hoverCard()
         .opacity(server.status == "offline" && server.isEnabled ? 0.6 : (server.isEnabled ? 1.0 : 0.4))
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             if server.cloudIdleSince != nil {

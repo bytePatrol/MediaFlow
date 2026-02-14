@@ -143,7 +143,13 @@ class FFmpegCommandBuilder:
         sub_mode = self.config.get("subtitle_mode", "copy")
 
         if sub_mode == "copy":
-            args.extend(["-c:s", "copy"])
+            container = self.config.get("container", "mkv")
+            if container == "mkv":
+                # MKV doesn't support mov_text (MP4 subtitle format).
+                # Convert text subs to SRT which is universally MKV-compatible.
+                args.extend(["-c:s", "srt"])
+            else:
+                args.extend(["-c:s", "copy"])
         elif sub_mode == "burn":
             pass
         elif sub_mode == "remove":
