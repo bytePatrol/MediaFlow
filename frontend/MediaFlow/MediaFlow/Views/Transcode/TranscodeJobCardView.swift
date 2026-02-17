@@ -306,7 +306,6 @@ struct TranscodeJobCardView: View {
                                             RoundedRectangle(cornerRadius: 3)
                                                 .fill(Color.mfTextSecondary.opacity(0.5))
                                                 .frame(width: geo.size.width * pp.progress / 100.0, height: 6)
-                                                .animation(.linear(duration: 0.3), value: pp.progress)
                                         }
                                     }
                                     .frame(height: 6)
@@ -319,7 +318,6 @@ struct TranscodeJobCardView: View {
                                             RoundedRectangle(cornerRadius: 3)
                                                 .fill(Color.mfPrimary)
                                                 .frame(width: geo.size.width * (transferProgress?.progress ?? 0) / 100.0, height: 6)
-                                                .animation(.linear(duration: 0.3), value: transferProgress?.progress)
                                         }
                                     }
                                     .frame(height: 6)

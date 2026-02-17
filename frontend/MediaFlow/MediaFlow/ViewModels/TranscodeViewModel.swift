@@ -36,6 +36,8 @@ class TranscodeViewModel: ObservableObject {
 
     private var service: BackendService
     private var wsService: WebSocketService?
+    private var lastProgressUpdate: [Int: Date] = [:]
+    private let progressThrottle: TimeInterval = 0.5
 
     enum JobFilter: String, CaseIterable {
         case all = "All Processing"
@@ -212,6 +214,12 @@ class TranscodeViewModel: ObservableObject {
                 guard let self = self,
                       let jobId = msg.data["job_id"]?.intValue,
                       let progress = msg.data["progress"]?.doubleValue else { return }
+                let now = Date()
+                if let last = self.lastProgressUpdate[jobId],
+                   now.timeIntervalSince(last) < self.progressThrottle {
+                    return
+                }
+                self.lastProgressUpdate[jobId] = now
                 if let index = self.jobs.firstIndex(where: { $0.id == jobId }) {
                     self.jobs[index].progressPercent = progress
                     self.jobs[index].currentFps = msg.data["fps"]?.doubleValue
@@ -224,6 +232,13 @@ class TranscodeViewModel: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self = self,
                       let jobId = msg.data["job_id"]?.intValue else { return }
+                let now = Date()
+                let key = jobId + 100_000  // separate throttle namespace for transfer
+                if let last = self.lastProgressUpdate[key],
+                   now.timeIntervalSince(last) < self.progressThrottle {
+                    return
+                }
+                self.lastProgressUpdate[key] = now
                 var tp = TransferProgress()
                 tp.direction = msg.data["direction"]?.stringValue ?? "download"
                 tp.label = msg.data["label"]?.stringValue ?? ""
@@ -246,6 +261,13 @@ class TranscodeViewModel: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self = self,
                       let jobId = msg.data["job_id"]?.intValue else { return }
+                let now = Date()
+                let key = jobId + 200_000  // separate throttle namespace for preupload
+                if let last = self.lastProgressUpdate[key],
+                   now.timeIntervalSince(last) < self.progressThrottle {
+                    return
+                }
+                self.lastProgressUpdate[key] = now
                 var tp = TransferProgress()
                 tp.direction = "upload"
                 tp.label = msg.data["label"]?.stringValue ?? "Pre-uploading"
@@ -279,6 +301,9 @@ class TranscodeViewModel: ObservableObject {
                     self.jobPreuploadProgress.removeValue(forKey: jobId)
                     self.jobPhaseLabel.removeValue(forKey: jobId)
                     self.jobLogMessages.removeValue(forKey: jobId)
+                    self.lastProgressUpdate.removeValue(forKey: jobId)
+                    self.lastProgressUpdate.removeValue(forKey: jobId + 100_000)
+                    self.lastProgressUpdate.removeValue(forKey: jobId + 200_000)
                 }
                 await self.loadJobs()
             }

@@ -163,7 +163,6 @@ struct ServerCardView: View {
                                 RoundedRectangle(cornerRadius: 3)
                                     .fill(Color.mfPrimary)
                                     .frame(width: geo.size.width * CGFloat(progress.progress) / 100.0)
-                                    .animation(.easeInOut(duration: 0.4), value: progress.progress)
                             }
                         }
                         .frame(height: 6)
@@ -291,7 +290,6 @@ struct ServerCardView: View {
                                 RoundedRectangle(cornerRadius: 3)
                                     .fill(Color.mfPrimary)
                                     .frame(width: geo.size.width * CGFloat(provisionStep?.progress ?? 0) / 100.0)
-                                    .animation(.easeInOut(duration: 0.4), value: provisionStep?.progress)
                             }
                         }
                         .frame(height: 6)
@@ -542,7 +540,7 @@ struct ServerCardView: View {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.mfPrimary.opacity(0.1)))
         .hoverCard()
         .opacity(server.status == "offline" && server.isEnabled ? 0.6 : (server.isEnabled ? 1.0 : 0.4))
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+        .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
             if server.cloudIdleSince != nil {
                 now = Date()
             }
