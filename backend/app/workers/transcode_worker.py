@@ -535,6 +535,20 @@ class TranscodeWorker:
             if probe_info:
                 total_duration = probe_info.duration
 
+        # If still no duration (frozen app ffprobe issue), probe on the remote
+        if total_duration == 0 and worker:
+            probe_cmd = (
+                f"ffprobe -v quiet -show_entries format=duration "
+                f"-of default=noprint_wrappers=1:nokey=1 {shlex.quote(remote_source)}"
+            )
+            probe_result = await ssh.run_command(probe_cmd, timeout=30)
+            if probe_result["exit_status"] == 0:
+                try:
+                    total_duration = float(probe_result["stdout"].strip())
+                    logger.info(f"Job {job.id}: got duration from remote probe: {total_duration:.1f}s")
+                except (ValueError, TypeError):
+                    pass
+
         # Start pre-uploading the next queued job while GPU transcodes
         await self._start_preupload_next_job(worker, ssh)
 
@@ -542,14 +556,20 @@ class TranscodeWorker:
             # Use streaming SSH for real-time progress on cloud workers
             async def _ffmpeg_line_cb(line: str):
                 match = PROGRESS_PATTERN.search(line)
-                if match and total_duration > 0:
+                if match:
                     frame = int(match.group(1))
                     fps = float(match.group(2))
                     time_str = match.group(4)
                     h, m, s = time_str.split(":")
                     current_seconds = int(h) * 3600 + int(m) * 60 + float(s)
-                    progress = min(100.0, (current_seconds / total_duration) * 100)
-                    eta = int((total_duration - current_seconds) / max(fps / 24, 0.01)) if fps > 0 else 0
+
+                    if total_duration > 0:
+                        progress = min(100.0, (current_seconds / total_duration) * 100)
+                        eta = int((total_duration - current_seconds) / max(fps / 24, 0.01)) if fps > 0 else 0
+                    else:
+                        progress = 0.0
+                        eta = 0
+
                     job.progress_percent = round(progress, 1)
                     job.current_fps = fps
                     job.eta_seconds = eta
@@ -560,9 +580,17 @@ class TranscodeWorker:
                         "fps": fps, "eta_seconds": eta, "frame": frame,
                     })
 
-            result = await ssh.run_command_streaming(remote_ffmpeg_cmd, line_callback=_ffmpeg_line_cb)
+            result = await ssh.run_command_streaming(
+                remote_ffmpeg_cmd, line_callback=_ffmpeg_line_cb, timeout=300,
+            )
+            if result["exit_status"] == -1:
+                logger.warning(f"Job {job.id}: remote ffmpeg stalled (no output for 5 minutes)")
+                await manager.broadcast("job.log", {
+                    "job_id": job.id,
+                    "message": "Remote ffmpeg stalled — no output for 5 minutes. Aborting.",
+                })
         else:
-            result = await ssh.run_command(remote_ffmpeg_cmd)
+            result = await ssh.run_command(remote_ffmpeg_cmd, timeout=1800)
 
         if result["exit_status"] != 0:
             log_text = result.get("stderr", "") or result.get("stdout", "")
@@ -593,9 +621,9 @@ class TranscodeWorker:
                 await session.commit()
 
                 if worker.cloud_provider:
-                    result = await ssh.run_command_streaming(fb1_cmd, line_callback=_ffmpeg_line_cb)
+                    result = await ssh.run_command_streaming(fb1_cmd, line_callback=_ffmpeg_line_cb, timeout=300)
                 else:
-                    result = await ssh.run_command(fb1_cmd)
+                    result = await ssh.run_command(fb1_cmd, timeout=1800)
 
                 if result["exit_status"] == 0:
                     job.ffmpeg_command = fb1_cmd
@@ -634,9 +662,9 @@ class TranscodeWorker:
                     await session.commit()
 
                     if worker.cloud_provider:
-                        result = await ssh.run_command_streaming(fallback_cmd, line_callback=_ffmpeg_line_cb)
+                        result = await ssh.run_command_streaming(fallback_cmd, line_callback=_ffmpeg_line_cb, timeout=300)
                     else:
-                        result = await ssh.run_command(fallback_cmd)
+                        result = await ssh.run_command(fallback_cmd, timeout=1800)
 
                     if result["exit_status"] != 0:
                         log_text = result.get("stderr", "") or result.get("stdout", "")
@@ -1240,7 +1268,20 @@ class TranscodeWorker:
 
         local_source = job.source_path
 
-        # Try path mappings from the local (controller) worker first
+        # Manual/quick transcode jobs: the user-provided path IS the local path.
+        # Skip Plex path mappings and NAS resolution — just use it directly.
+        if job.media_item_id is None:
+            if not os.path.exists(local_source):
+                job.status = "failed"
+                job.ffmpeg_log = f"Source file not found: {local_source}"
+                await session.commit()
+                await manager.broadcast("job.failed", {
+                    "job_id": job.id, "error": f"Source file not found: {local_source}"
+                })
+                return None
+            return (local_source, False, None, None)
+
+        # Plex library jobs: try path mappings to translate Plex path → local path
         ctrl_result = await session.execute(
             select(WorkerServer).where(WorkerServer.is_local == True)  # noqa: E712
         )

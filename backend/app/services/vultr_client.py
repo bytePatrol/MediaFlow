@@ -150,6 +150,15 @@ class VultrClient:
             self._check_response(resp)
             return resp.json()["instance"]
 
+    async def start_instance(self, instance_id: str) -> bool:
+        """Start a stopped instance. Returns True on success."""
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{self.BASE_URL}/instances/{instance_id}/start",
+                headers=self._headers(),
+            )
+            return resp.status_code == 204
+
     async def delete_instance(self, instance_id: str) -> bool:
         """Delete/destroy an instance. Returns True on success."""
         async with httpx.AsyncClient(timeout=15) as client:

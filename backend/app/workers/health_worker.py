@@ -219,6 +219,10 @@ class HealthWorker:
             servers = result.scalars().all()
 
             for server in servers:
+                # Skip servers still being provisioned — they aren't ready for health checks
+                if server.status == "provisioning":
+                    continue
+
                 if server.is_local:
                     server.status = "online"
                     server.last_heartbeat_at = datetime.utcnow()
@@ -343,6 +347,15 @@ class HealthWorker:
         _server_metrics.pop(server.id, None)
 
         if server.consecutive_failures >= AUTO_DISABLE_THRESHOLD:
+            # Cloud servers are managed by cloud_monitor (idle teardown, spend caps)
+            # — don't auto-disable them from health checks
+            if server.cloud_provider:
+                logger.info(
+                    f"Cloud server {server.name} has {server.consecutive_failures} "
+                    f"consecutive failures but skipping auto-disable (managed by cloud_monitor)"
+                )
+                return
+
             server.is_enabled = False
             logger.warning(
                 f"Server {server.name} auto-disabled after "

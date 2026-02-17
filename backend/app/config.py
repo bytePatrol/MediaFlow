@@ -1,11 +1,20 @@
 from pydantic_settings import BaseSettings
 from typing import List
 import json
+import os
 import shutil
 
 
 def _find_binary(name: str, fallback: str) -> str:
-    return shutil.which(name) or fallback
+    found = shutil.which(name)
+    if found:
+        return found
+    # Search common macOS install locations (PATH is limited in frozen .app bundles)
+    for directory in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]:
+        path = os.path.join(directory, name)
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return fallback
 
 
 class Settings(BaseSettings):

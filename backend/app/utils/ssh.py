@@ -38,6 +38,8 @@ class SSHClient:
             "known_hosts": None,
             "login_timeout": 15,
             "encryption_algs": _PREFERRED_CIPHERS,
+            "keepalive_interval": 30,
+            "keepalive_count_max": 3,
         }
         if self.username:
             kwargs["username"] = self.username
@@ -206,6 +208,8 @@ class SSHClient:
                  "-o", "UserKnownHostsFile=/dev/null",
                  "-o", "LogLevel=ERROR",
                  "-o", "Compression=no",
+                 "-o", "ServerAliveInterval=30",
+                 "-o", "ServerAliveCountMax=3",
                  "-c", "aes128-gcm@openssh.com"]
         if self.port != 22:
             parts += ["-p", str(self.port)]
@@ -229,7 +233,7 @@ class SSHClient:
         """
         cmd = [
             "rsync", "-e", self._ssh_cmd_args(),
-            "--inplace", "--whole-file", "--progress",
+            "--inplace", "--partial", "--progress",
             src, dst,
         ]
         logger.info(f"rsync transfer: {src} -> {dst}")
@@ -425,51 +429,69 @@ class SSHClient:
         return False
 
     async def upload_file(self, local_path: str, remote_path: str,
-                          progress_callback=None) -> bool:
-        try:
-            file_size = os.path.getsize(local_path)
+                          progress_callback=None, max_retries: int = 2) -> bool:
+        file_size = os.path.getsize(local_path)
 
-            if self.key_path and not self.password:
-                # For large files, try parallel multi-stream upload (4 SSH connections)
-                if file_size >= 100 * 1024 * 1024:
-                    ok = await self._parallel_ssh_upload(
-                        local_path, remote_path, file_size,
-                        num_streams=4, progress_callback=progress_callback,
+        for attempt in range(1 + max_retries):
+            try:
+                if attempt > 0:
+                    wait = 10 * attempt
+                    logger.info(f"Upload retry {attempt}/{max_retries} in {wait}s...")
+                    await asyncio.sleep(wait)
+                    # On retry, go straight to rsync (can resume partial transfers)
+                    if self.key_path and not self.password:
+                        ok = await self._rsync_transfer(
+                            local_path, self._remote_spec(remote_path),
+                            file_size, progress_callback,
+                        )
+                        if ok:
+                            return True
+                    # If rsync not available or failed, fall through to SFTP below
+
+                if attempt == 0 and self.key_path and not self.password:
+                    # For large files, try parallel multi-stream upload (4 SSH connections)
+                    if file_size >= 100 * 1024 * 1024:
+                        ok = await self._parallel_ssh_upload(
+                            local_path, remote_path, file_size,
+                            num_streams=4, progress_callback=progress_callback,
+                        )
+                        if ok:
+                            return True
+                        logger.info("Parallel upload failed, falling back to rsync")
+
+                    # Single-stream rsync fallback
+                    ok = await self._rsync_transfer(
+                        local_path, self._remote_spec(remote_path),
+                        file_size, progress_callback,
                     )
                     if ok:
                         return True
-                    logger.info("Parallel upload failed, falling back to rsync")
+                    logger.info("rsync upload failed, falling back to SFTP")
 
-                # Single-stream rsync fallback
-                ok = await self._rsync_transfer(
-                    local_path, self._remote_spec(remote_path),
-                    file_size, progress_callback,
-                )
-                if ok:
-                    return True
-                logger.info("rsync upload failed, falling back to SFTP")
+                # Fallback: asyncssh SFTP
+                import asyncssh
+                kwargs = self._connect_kwargs()
 
-            # Fallback: asyncssh SFTP
-            import asyncssh
-            kwargs = self._connect_kwargs()
+                async with asyncssh.connect(**kwargs) as conn:
+                    async with conn.start_sftp_client() as sftp:
+                        try:
+                            await sftp.put(local_path, remote_path,
+                                           block_size=SFTP_BLOCK_SIZE,
+                                           sparse=False,
+                                           progress_handler=progress_callback)
+                        except OSError as e:
+                            if e.errno == 45:
+                                logger.info("sftp.put failed on network mount, using chunked upload")
+                                await self._chunked_upload(sftp, local_path, remote_path, progress_callback)
+                            else:
+                                raise
+                return True
+            except Exception as e:
+                logger.error(f"Upload failed (attempt {attempt + 1}/{1 + max_retries}): {e}")
+                if attempt >= max_retries:
+                    return False
 
-            async with asyncssh.connect(**kwargs) as conn:
-                async with conn.start_sftp_client() as sftp:
-                    try:
-                        await sftp.put(local_path, remote_path,
-                                       block_size=SFTP_BLOCK_SIZE,
-                                       sparse=False,
-                                       progress_handler=progress_callback)
-                    except OSError as e:
-                        if e.errno == 45:
-                            logger.info("sftp.put failed on network mount, using chunked upload")
-                            await self._chunked_upload(sftp, local_path, remote_path, progress_callback)
-                        else:
-                            raise
-            return True
-        except Exception as e:
-            logger.error(f"Upload failed: {e}")
-            return False
+        return False
 
     async def _chunked_upload(self, sftp, local_path: str, remote_path: str,
                               progress_callback=None) -> None:

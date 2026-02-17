@@ -130,9 +130,12 @@ async def probe_file_endpoint(request: ProbeRequest):
     if not os.path.exists(request.file_path):
         raise HTTPException(status_code=404, detail=f"File not found: {request.file_path}")
 
-    info = await probe_file(request.file_path)
+    try:
+        info = await probe_file(request.file_path, raise_on_error=True)
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=f"ffprobe failed: {e}")
     if not info:
-        raise HTTPException(status_code=422, detail="ffprobe failed to read file")
+        raise HTTPException(status_code=422, detail="ffprobe returned no data")
 
     video = info.video_streams[0] if info.video_streams else {}
     audio = info.audio_streams[0] if info.audio_streams else {}

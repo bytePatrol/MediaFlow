@@ -7,14 +7,12 @@ class CloudDeployPanel {
     private var panel: NSPanel?
 
     @MainActor
-    func show(onDeploy: @escaping () -> Void) {
+    func show(onDeploy: (() -> Void)? = nil) {
         guard panel == nil else { return }
 
         let content = CloudDeployPanelContent(dismiss: { [weak self] in
             self?.close()
-        }, onDeploy: {
-            onDeploy()
-        })
+        }, onDeploy: onDeploy)
 
         let hostingView = NSHostingView(rootView: content)
         hostingView.frame = NSRect(x: 0, y: 0, width: 480, height: 520)
@@ -51,7 +49,7 @@ class CloudDeployPanel {
 
 struct CloudDeployPanelContent: View {
     var dismiss: () -> Void
-    var onDeploy: () -> Void
+    var onDeploy: (() -> Void)?
 
     @State private var plans: [CloudPlanInfo] = []
     @State private var selectedPlan: String = "vcg-a16-6c-64g-16vram"
@@ -326,7 +324,7 @@ struct CloudDeployPanelContent: View {
                 autoTeardown: autoTeardown
             )
             _ = try await service.deployCloudGPU(request: request)
-            onDeploy()
+            onDeploy?()
             dismiss()
         } catch {
             errorMessage = "Deploy failed: \(error.localizedDescription)"

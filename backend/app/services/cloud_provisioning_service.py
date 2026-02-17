@@ -251,6 +251,8 @@ async def deploy_cloud_gpu(
         server = result.scalar_one()
         server.cloud_status = "active"
         server.status = "online"
+        server.consecutive_failures = 0
+        server.is_enabled = True
         await session.commit()
 
         # Create instance cost record
@@ -379,6 +381,7 @@ async def _poll_instance_active(vultr: VultrClient, instance_id: str, server_id:
     interval = 10
     elapsed = 0
 
+    started = False
     while elapsed < max_wait:
         instance = await vultr.get_instance(instance_id)
         status = instance.get("status", "")
@@ -394,6 +397,12 @@ async def _poll_instance_active(vultr: VultrClient, instance_id: str, server_id:
 
         if status == "active" and power == "running" and main_ip and main_ip != "0.0.0.0":
             return main_ip
+
+        # Instance provisioned but power is off — start it
+        if status == "active" and power == "stopped" and not started:
+            logger.info(f"Instance {instance_id} is stopped, sending start command")
+            await vultr.start_instance(instance_id)
+            started = True
 
         await asyncio.sleep(interval)
         elapsed += interval

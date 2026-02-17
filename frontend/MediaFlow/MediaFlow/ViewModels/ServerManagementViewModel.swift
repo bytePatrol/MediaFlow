@@ -280,6 +280,10 @@ class ServerManagementViewModel: ObservableObject {
             // Cloud deploy progress uses server_id=0 initially, then real ID
             if serverId > 0 {
                 self.cloudDeployProgress[serverId] = progress
+                // Server record was just created — fetch it so the card appears
+                if !self.servers.contains(where: { $0.id == serverId }) {
+                    Task { await self.loadServers() }
+                }
             }
         }
 

@@ -67,9 +67,7 @@ struct ServerManagementView: View {
                         .buttonStyle(.plain)
 
                         Button {
-                            cloudDeployPanel.show {
-                                Task { await viewModel.loadServers() }
-                            }
+                            cloudDeployPanel.show()
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "cloud.bolt")

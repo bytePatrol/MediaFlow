@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 from typing import Optional, Dict, Any
 
 from app.config import settings
@@ -88,11 +89,19 @@ class MediaFileInfo:
         }
 
 
-async def probe_file(file_path: str) -> Optional[MediaFileInfo]:
+async def probe_file(file_path: str, raise_on_error: bool = False) -> Optional[MediaFileInfo]:
     try:
+        ffprobe_path = settings.FFPROBE_PATH
+        if not os.path.isfile(ffprobe_path):
+            msg = f"ffprobe not found at {ffprobe_path}"
+            logger.error(msg)
+            if raise_on_error:
+                raise RuntimeError(msg)
+            return None
+
         cmd = [
-            settings.FFPROBE_PATH,
-            "-v", "quiet",
+            ffprobe_path,
+            "-v", "error",
             "-print_format", "json",
             "-show_format",
             "-show_streams",
@@ -106,11 +115,18 @@ async def probe_file(file_path: str) -> Optional[MediaFileInfo]:
         stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
-            logger.error(f"FFprobe failed: {stderr.decode()}")
+            err_text = stderr.decode().strip()
+            logger.error(f"FFprobe failed (exit {process.returncode}): {err_text}")
+            if raise_on_error:
+                raise RuntimeError(err_text or f"ffprobe exited with code {process.returncode}")
             return None
 
         data = json.loads(stdout.decode())
         return MediaFileInfo(data)
+    except RuntimeError:
+        raise
     except Exception as e:
         logger.error(f"FFprobe error: {e}")
+        if raise_on_error:
+            raise RuntimeError(str(e))
         return None
