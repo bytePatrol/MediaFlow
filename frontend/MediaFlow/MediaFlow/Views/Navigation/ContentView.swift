@@ -36,7 +36,6 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.mfBackground)
-                .animation(.easeInOut(duration: 0.15), value: appState.selectedNavItem)
             }
 
             // Global toast notifications

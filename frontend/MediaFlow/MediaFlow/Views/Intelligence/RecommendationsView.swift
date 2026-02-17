@@ -3,6 +3,7 @@ import SwiftUI
 struct RecommendationsView: View {
     @StateObject private var viewModel = RecommendationViewModel()
     @State private var showHistory: Bool = false
+    @State private var displayLimit: Int = 50
 
     let typeFilters: [(String, String?)] = [
         ("All", nil),
@@ -80,6 +81,7 @@ struct RecommendationsView: View {
                     .pickerStyle(.menu)
                     .frame(maxWidth: 200)
                     .onChange(of: viewModel.selectedLibraryId) { _, _ in
+                        displayLimit = 50
                         Task { await viewModel.loadRecommendations() }
                     }
                 }
@@ -189,6 +191,7 @@ struct RecommendationsView: View {
                     ForEach(typeFilters, id: \.0) { label, type in
                         Button {
                             viewModel.selectedType = type
+                            displayLimit = 50
                             Task { await viewModel.loadRecommendations() }
                         } label: {
                             Text(label)
@@ -214,16 +217,20 @@ struct RecommendationsView: View {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     if viewModel.selectedType != nil {
                         // When a specific type is selected, show flat list (already filtered)
-                        ForEach(viewModel.recommendations) { rec in
+                        ForEach(Array(viewModel.recommendations.prefix(displayLimit))) { rec in
                             RecommendationCardView(recommendation: rec, onDismiss: {
                                 Task { await viewModel.dismissRecommendation(rec.id) }
                             }, onQueue: {
                                 Task { await viewModel.queueRecommendation(rec.id) }
                             })
                         }
+                        if viewModel.recommendations.count > displayLimit {
+                            showMoreButton(total: viewModel.recommendations.count)
+                        }
                     } else {
                         // Group by category with section headers
-                        ForEach(viewModel.groupedRecommendations, id: \.0) { category, recs in
+                        let groups = viewModel.groupedRecommendations
+                        ForEach(groups, id: \.0) { category, recs in
                             VStack(alignment: .leading, spacing: 8) {
                                 // Section header
                                 HStack(spacing: 8) {
@@ -244,12 +251,15 @@ struct RecommendationsView: View {
                                 }
                                 .padding(.top, 8)
 
-                                ForEach(recs) { rec in
+                                ForEach(recs.prefix(displayLimit)) { rec in
                                     RecommendationCardView(recommendation: rec, onDismiss: {
                                         Task { await viewModel.dismissRecommendation(rec.id) }
                                     }, onQueue: {
                                         Task { await viewModel.queueRecommendation(rec.id) }
                                     })
+                                }
+                                if recs.count > displayLimit {
+                                    showMoreButton(total: recs.count)
                                 }
                             }
                         }
@@ -281,6 +291,21 @@ struct RecommendationsView: View {
         }
         .background(Color.mfBackground)
         .task { await viewModel.loadRecommendations() }
+    }
+
+    private func showMoreButton(total: Int) -> some View {
+        Button {
+            displayLimit += 50
+        } label: {
+            Text("Show more (\(total - displayLimit) remaining)")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.mfPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.mfPrimary.opacity(0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
     }
 
     private func categoryDisplayName(_ type: String) -> String {

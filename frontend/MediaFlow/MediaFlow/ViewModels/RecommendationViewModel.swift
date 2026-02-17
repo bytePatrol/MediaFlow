@@ -11,6 +11,7 @@ class RecommendationViewModel: ObservableObject {
     @Published var isGenerating: Bool = false
     @Published var selectedType: String? = nil
     @Published var selectedLibraryId: Int? = nil
+    @Published var groupedRecommendations: [(String, [Recommendation])] = []
 
     private let service: BackendService
 
@@ -18,8 +19,7 @@ class RecommendationViewModel: ObservableObject {
         self.service = service
     }
 
-    /// Grouped recommendations by category for section display
-    var groupedRecommendations: [(String, [Recommendation])] {
+    private func rebuildGroupedRecommendations() {
         let categoryOrder = [
             "codec_upgrade", "quality_overkill", "duplicate", "low_quality",
             "storage_optimization", "audio_optimization", "container_modernize",
@@ -32,13 +32,12 @@ class RecommendationViewModel: ObservableObject {
                 result.append((category, recs))
             }
         }
-        // Include any types not in the predefined order
         for (category, recs) in grouped {
             if !categoryOrder.contains(category) && !recs.isEmpty {
                 result.append((category, recs))
             }
         }
-        return result
+        groupedRecommendations = result
     }
 
     func loadRecommendations() async {
@@ -55,6 +54,7 @@ class RecommendationViewModel: ObservableObject {
             analysisHistory = hist
             savingsAchieved = sav
             librarySections = sections
+            rebuildGroupedRecommendations()
         } catch {
             print("Failed to load recommendations: \(error)")
         }
