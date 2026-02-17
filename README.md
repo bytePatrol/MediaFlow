@@ -5,7 +5,7 @@
 <h1 align="center">MediaFlow</h1>
 
 <p align="center">
-  <strong>Intelligent Plex media library optimizer & distributed transcoding engine for macOS</strong>
+  <strong>The intelligent Plex media library optimizer & distributed transcoding engine for macOS</strong>
 </p>
 
 <p align="center">
@@ -15,28 +15,31 @@
   <img src="https://img.shields.io/badge/FastAPI-0.109%2B-009688?style=flat-square&logo=fastapi&logoColor=white" />
   <img src="https://img.shields.io/badge/FFmpeg-GPL-007808?style=flat-square&logo=ffmpeg&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" />
+  <img src="https://img.shields.io/github/v/release/bytePatrol/MediaFlow?style=flat-square&color=brightgreen" />
 </p>
 
 <br />
 
-MediaFlow connects to your Plex servers, analyzes every file in your library, and gives you the tools to modernize codecs, reclaim storage, and orchestrate transcoding across local and cloud hardware — all from a native macOS app with real-time progress.
+MediaFlow connects to your Plex servers, analyzes every file in your library, and gives you the tools to modernize codecs, reclaim storage, and orchestrate transcoding across local and cloud hardware — all from a native macOS app with real-time progress, VMAF quality validation, smart automation, and premium analytics.
 
 ---
 
 ## Table of Contents
 
-- [Highlights](#highlights)
+- [Why MediaFlow?](#why-mediaflow)
 - [Features](#features)
-  - [Library Analysis & Filtering](#library-analysis--filtering)
+  - [Library Management & Media Detail](#library-management--media-detail)
   - [Intelligence Engine](#intelligence-engine)
+  - [Smart Automation & Workflows](#smart-automation--workflows)
+  - [Quality Assurance (VMAF)](#quality-assurance-vmaf)
   - [Transcode Configuration](#transcode-configuration)
+  - [Processing Queue](#processing-queue)
   - [Distributed Worker System](#distributed-worker-system)
   - [Cloud GPU Transcoding](#cloud-gpu-transcoding)
-  - [Real-Time Processing Queue](#real-time-processing-queue)
+  - [Premium Analytics](#premium-analytics)
+  - [Command Palette](#command-palette)
   - [Quick Transcode](#quick-transcode)
-  - [Analytics Dashboard](#analytics-dashboard)
   - [Notifications](#notifications)
-  - [Automation](#automation)
 - [Architecture](#architecture)
 - [Tech Stack](#tech-stack)
 - [Getting Started](#getting-started)
@@ -48,33 +51,37 @@ MediaFlow connects to your Plex servers, analyzes every file in your library, an
 
 ---
 
-## Highlights
+## Why MediaFlow?
 
 | | |
 |---|---|
-| **Full library visibility** | Browse every file with codec, resolution, bitrate, HDR, and audio metadata at a glance |
-| **9 intelligence analyzers** | Identify which files to transcode, how much space you'll save, and the confidence level of each recommendation |
-| **Per-library analysis** | Scope recommendations, summaries, and history to individual Plex libraries |
+| **Full library visibility** | Browse every file with codec, resolution, bitrate, HDR, audio metadata, play count, and transcode history at a glance |
+| **Intelligent recommendations that learn** | 9 analyzers generate recommendations with cost-benefit analysis, ROI scoring, and confidence levels — the system learns from your feedback and gets smarter over time |
+| **Viewing-pattern awareness** | Recommendations factor in Plex play counts and last-watched dates — aggressive compression for unwatched content, conservative for favorites |
+| **VMAF quality validation** | Every transcode can be scored with Netflix's perceptual quality metric (0-100) with visual A/B frame comparison |
+| **Set-and-forget automation** | Trigger → condition → action rules that analyze, queue, and transcode automatically. One-click library optimization. |
+| **4 queue strategies** | FIFO, biggest savings first, fastest jobs first, or most-watched first — plus drag-and-drop manual reordering |
 | **Distributed transcoding** | Fan out jobs across your Mac, remote Linux servers, and on-demand cloud GPUs simultaneously |
-| **Cloud GPU on demand** | Deploy Vultr A16/A40 instances with one click — auto-teardown on idle, spend cap enforcement |
+| **Cloud GPU on demand** | Deploy Vultr A16/A40 instances with one click — auto-teardown on idle, spend cap enforcement, full cost analytics |
 | **NVENC hardware encoding** | Automatic CPU-to-GPU codec upgrade with 14x speedup (561 FPS vs 40 FPS on hevc_nvenc) |
-| **Pre-upload pipeline** | While the GPU transcodes the current job, the next source file uploads in parallel |
-| **6 notification channels** | Push (macOS banners), email, Discord, Slack, Telegram, and webhooks — all configurable per event |
-| **Automation** | Scheduled scans, Sonarr/Radarr webhooks, folder watching, and cloud auto-deploy |
+| **Premium analytics suite** | Library health grades, codec migration tracking, cost analytics, worker heatmaps, job timelines, storage projections, and PDF reports |
+| **6 notification channels** | Push (macOS banners), email, Discord, Slack, Telegram, and webhooks — all triggerable from automation rules |
+| **Command palette** | `⌘K` for instant media search, navigation, library-scoped actions, and recent action replay |
 | **Real-time everything** | WebSocket-driven progress bars, encoding speed, ETA, and server metrics — no polling |
+| **Completely free** | No subscription, no premium tier, no feature gates — every feature is included |
 
 ---
 
 ## Features
 
-### Library Analysis & Filtering
+### Library Management & Media Detail
 
-Connect to one or more Plex servers via OAuth and sync your entire media catalog. Browse every file with full technical metadata and powerful compound filters.
+Connect to one or more Plex servers via OAuth and sync your entire media catalog. Browse every file with full technical metadata, powerful compound filters, and deep item inspection.
 
 - **Resolution** (4K, 1080p, 720p, SD) with HDR/SDR indicators
 - **Video codec** (H.264, H.265, AV1, VP9, VC1, MPEG4)
 - **Audio tracks** (Atmos, DTS-X, TrueHD, AC3, AAC, FLAC) with channel counts
-- **Bitrate**, file size, duration, container format, frame rate
+- **Bitrate**, file size, duration, container format, frame rate, play count, last watched
 - **Advanced compound filters** — combine resolution + codec + bitrate + library + size range
 - **Saved filter presets** — save, load, and delete filter configurations
 - **Cross-page bulk selection** — "Select All Filtered" grabs every matching item, not just the current page
@@ -83,36 +90,129 @@ Connect to one or more Plex servers via OAuth and sync your entire media catalog
 - **Drag-and-drop** — drop video files onto the sidebar to jump straight to Quick Transcode
 - **CSV/JSON export** of any filtered view
 
+#### Media Item Detail Panel
+
+Click any media item to open a comprehensive detail panel:
+
+- **Full metadata** — resolution, codec, bitrate, container, duration, file size, full path
+- **Audio & subtitle tracks** — every track with codec, language, and channel layout
+- **Transcode history** — every past job for this file with status, codec change, size reduction, VMAF score, and date
+- **Recommendation status** — active recommendations with type, priority, estimated savings, and status (pending/queued/dismissed)
+- **Quick transcode** — start a transcode directly from the detail panel
+
 ### Intelligence Engine
 
-Nine built-in recommendation analyzers scan your library and surface actionable insights with estimated savings, confidence scores, and priority rankings.
+Nine built-in recommendation analyzers scan your library and surface actionable insights with cost-benefit analysis, ROI scoring, confidence levels, and viewing-pattern awareness.
 
 | Analyzer | What It Finds |
 |----------|---------------|
-| **Codec Modernization** | H.264/MPEG4/VC1 files that benefit from H.265 conversion |
-| **Quality Overkill** | 4K HDR content with minimal views — candidates for space-saving downscale |
+| **Codec Modernization** | H.264/MPEG4/VC1 files that benefit from H.265/AV1 conversion |
+| **Quality Overkill** | Files with excessively high bitrates relative to their resolution |
 | **Duplicate Detection** | Same content in multiple qualities or formats across libraries |
 | **Quality Gap Analysis** | Files with bitrates far below your library average |
 | **Storage Optimization** | Largest files with lowest engagement — top candidates for compression |
 | **Audio Optimization** | Lossless high-channel audio (TrueHD, DTS-HD MA) eligible for downmix |
 | **Container Modernize** | Legacy containers (.avi, .wmv, .mpg) for fast remux to .mkv |
 | **HDR to SDR** | Low-usage HDR content for tone-mapped SDR conversion |
-| **Batch Similar** | Groups of 5+ files sharing codec/resolution for batch transcode |
+| **Viewing Pattern** | Recommendations based on how you actually watch — aggressive for unwatched, conservative for favorites |
 
-**Intelligent estimation pipeline:**
+#### Cost-Benefit Analysis
+
+Every recommendation includes a detailed breakdown:
+
+- **Estimated file size savings** (e.g., "Save 4.2 GB")
+- **Transcode duration** based on historical FPS for that codec pair
+- **Cloud GPU cost** if using cloud workers (e.g., "$0.12")
+- **ROI score** (e.g., "35x ROI" = $0.12 GPU cost to save 4.2 GB)
+- **Confidence level** — learned (high) vs estimated (lower)
+
+Sort recommendations by ROI to find the most cost-effective optimizations.
+
+#### Preference Learning
+
+The Intelligence system learns from your feedback and gets smarter over time:
+
+- **Dismiss with reason** — tell the system "don't touch 4K", "keep original codec", or "file too important"
+- **Type suppression** — if you dismiss >70% of a recommendation type, it stops suggesting them
+- **Resolution rules** — dismiss 4K transcodes 3+ times and the system learns to skip 4K content
+- **Savings calibration** — actual compression ratios from completed jobs refine future estimates
+- **Automatic filtering** — learned preferences are applied before recommendations are shown
+
+#### Per-Library Scoping
+
+- Filter recommendations, summaries, and analysis history to any individual Plex library
+- Library-specific analysis with dedicated summary and top opportunities
+- Analysis history shows which libraries were analyzed with library badges
+
+#### Intelligent Estimation Pipeline
 
 1. **Learned ratios** — actual compression ratios from your completed jobs (min 3 samples per codec pair, 90% confidence)
 2. **Default ratios** — curated codec-pair tables (50% confidence)
 3. **Bitrate analysis** — compares file bitrate to resolution reference (30% confidence)
 4. **Fallback** — conservative 40% estimate (20% confidence)
 
-**Per-library scoping** — filter recommendations, summaries, and analysis history to any individual Plex library. Analysis runs track which library was analyzed with full history and library badges in the UI.
+### Smart Automation & Workflows
 
-**Priority scoring** — each recommendation is scored 0–100 based on file size (40%), codec age (25%), estimation confidence (20%), and play count (15%).
+Create trigger-based rules that keep your library optimized automatically — zero manual intervention required.
 
-**Configurable thresholds** — 9 tunable parameters (min file size, max plays, channel threshold, batch group size, etc.) adjustable via Settings.
+#### Automation Rules Engine
 
-One-click **batch queue** sends all accepted recommendations straight to the transcode pipeline.
+Each rule consists of a **trigger**, optional **conditions**, and an **action**:
+
+| Triggers | Actions |
+|----------|---------|
+| Analysis complete | Queue top N recommendations |
+| Job complete | Run analysis |
+| Job failed | Send notification |
+| Library sync | Pause queue |
+| Storage threshold | Deploy cloud GPU |
+| Schedule (cron) | |
+
+**Conditions** filter triggers with comparisons (>, <, =, contains) on any event field — e.g., "only when savings > 50 GB" or "only for high-priority jobs."
+
+**Example rules:**
+- *"When analysis completes and savings > 50 GB, auto-queue top 20 recommendations"*
+- *"When a job fails, send a Discord notification"*
+- *"When library syncs, run analysis"*
+- *"When storage free < 10%, pause queue and send alert"*
+
+Each rule shows trigger count, last fired timestamp, and can be enabled/disabled with a toggle.
+
+#### One-Click Optimize
+
+A single button chains: **sync** → **analyze** → **queue high-confidence recommendations** → **transcode**. The fastest way to bring a library up to date.
+
+#### Additional Automation
+
+- **Scheduled library scans** — configurable interval (6h / 12h / daily / weekly) with optional post-sync analysis
+- **Sonarr/Radarr webhooks** — `POST /api/webhooks/ingest/{source_id}` auto-creates transcode jobs when new media arrives
+- **Folder watching** — monitor directories for new media files, auto-queue with configurable preset and delay
+- **Cloud auto-deploy** — automatically spin up a cloud GPU when jobs queue with no workers available
+- **Auto-analyze on sync** — intelligence analysis runs automatically after library sync
+
+### Quality Assurance (VMAF)
+
+Build trust that transcoding preserves quality with Netflix's perceptual quality metric.
+
+#### VMAF Quality Scoring
+
+- After transcode, MediaFlow runs `ffmpeg -lavfi libvmaf` to compute a 0–100 perceptual quality score
+- Scores stored per job and displayed as badges: **"98.2 VMAF — Excellent"**
+- Color-coded: 95+ green (excellent), 90-95 blue (very good), 80-90 orange (good), <80 red (quality concern)
+- Visible on job cards, media detail panels, and the VMAF Dashboard
+
+#### Visual A/B Comparison
+
+- Side-by-side frame captures from original and transcoded files at matching timestamps
+- Metadata comparison: codec, resolution, file size, bitrate, and VMAF score for both versions
+- See exactly what changed: *"1.8 GB → 420 MB (77% smaller), VMAF 96.7"*
+
+#### VMAF Validation Dashboard
+
+- **Average quality score** across all scored transcodes
+- **Per-codec-pair breakdown** — which conversions retain the most quality (e.g., H.264→HEVC averages 96.3)
+- **Score distribution** — total scored jobs, min/max scores
+- Spot problematic presets before they affect your library
 
 ### Transcode Configuration
 
@@ -131,6 +231,49 @@ Full control over the encoding pipeline with four built-in presets and complete 
 | **Storage Saver** | Maximum compression for bulk libraries |
 | **Mobile Optimized** | 720p / lower bitrate for mobile streaming |
 | **Ultra Fidelity** | Archive-grade quality preservation |
+
+#### Codec Strategy Advisor
+
+Don't know which codec to target? The Codec Strategy Advisor analyzes your completed transcode history and recommends the optimal target for each library:
+
+- **Per-library recommendations** based on actual compression ratios from your data
+- **Per-resolution breakdowns** — 4K content may benefit more from AV1 than 1080p does
+- **Projected savings** if you follow the recommended strategy
+- Recommendations improve over time as more jobs complete
+
+### Processing Queue
+
+Everything updates live via WebSocket — no polling, no refresh.
+
+- **Progress bars** with percentage, encoding speed (FPS), and ETA per job
+- **Pre-upload indicators** — shows upload progress on the next queued job while the current one transcodes
+- **Server metrics** — CPU, GPU, RAM, temperature per worker
+- **Queue stats** — pending, active, completed counts with aggregate FPS
+- **Job logs** — expandable FFmpeg output for debugging
+- **Auto-retry** — failed jobs retry with exponential backoff (1/5/15 min), configurable max retries
+- **Stuck detection** — health worker flags stalled jobs after configurable timeout
+- **Post-transcode validation** — ffprobe verifies output has video streams, correct file size, and matching duration
+
+#### 4 Queue Priority Strategies
+
+| Strategy | How It Works |
+|----------|-------------|
+| **First In, First Out** | Default — jobs processed in queue order |
+| **Biggest Savings First** | Large files yielding the most storage savings go first |
+| **Fastest Jobs First** | Small files for quick wins and rapid progress |
+| **Most Watched First** | Frequently-viewed content gets optimized first |
+
+Switch strategies via the dropdown in the queue header. Your preference persists across sessions.
+
+#### Drag-and-Drop Reordering
+
+Queued jobs can be reordered by dragging:
+
+- **Drag handles** on each queued job card
+- **Position badges** (#1, #2, #3) update in real-time
+- **Drop target highlighting** shows where the job will land
+- **Backend persistence** — new order is saved immediately
+- Manual reordering takes precedence over the selected strategy
 
 ### Distributed Worker System
 
@@ -161,10 +304,10 @@ Deploy GPU compute on demand from directly within the app. No manual server setu
 
 - **One-click deploy** — pick a GPU plan (Vultr A16/A40), region, and idle timeout
 - **Automatic provisioning** — creates instance, polls until active, SSHs in, installs FFmpeg + tests NVENC
-- **NVENC auto-upgrade** — CPU codecs are automatically swapped to GPU equivalents (`libx265` -> `hevc_nvenc`)
+- **NVENC auto-upgrade** — CPU codecs are automatically swapped to GPU equivalents (`libx265` → `hevc_nvenc`)
 - **NVENC failure fallback** — 2-stage: drops CUDA decode first, then falls back to full CPU encoding
 - **Idle auto-teardown** — configurable timeout destroys instances when no jobs are running
-- **Auto-deploy** — optionally deploy a cloud GPU automatically when jobs queue with no workers available
+- **Auto-deploy** — optionally deploy a cloud GPU automatically when jobs queue with no workers available (also available as an automation rule action)
 - **Spend caps** — monthly and per-instance caps with automatic enforcement
 - **Cost tracking** — per-job and per-instance cost recorded with full analytics
 - **vGPU compatibility** — auto-detects NVENC SDK version and falls back to compatible FFmpeg build (Jellyfin)
@@ -176,19 +319,91 @@ Deploy GPU compute on demand from directly within the app. No manual server setu
 | A40 1/3 | 16 GB | ~$0.58/hr |
 | A40 1/2 | 24 GB | ~$0.86/hr |
 
-### Real-Time Processing Queue
+### Premium Analytics
 
-Everything updates live via WebSocket — no polling, no refresh.
+A comprehensive analytics suite with animated KPI counters, interactive charts, and detailed breakdowns across 8 dashboard views.
 
-- **Progress bars** with percentage, encoding speed (FPS), and ETA per job
-- **Pre-upload indicators** — shows upload progress on the next queued job while the current one transcodes
-- **Server metrics** — CPU, GPU, RAM, temperature per worker
-- **Queue stats** — pending, active, completed counts with aggregate FPS
-- **Job logs** — expandable FFmpeg output for debugging
-- **Auto-retry** — failed jobs retry with exponential backoff (1/5/15 min), configurable max retries
-- **Stuck detection** — health worker flags stalled jobs after configurable timeout
-- **Post-transcode validation** — ffprobe verifies output has video streams, correct file size, and matching duration
-- **Drag-and-drop reordering** — prioritize jobs in the queue
+#### Core Dashboard
+
+- **Library health score** — weighted 0–100 grade (codec modernity 40%, bitrate appropriateness 30%, container format 15%, audio efficiency 15%) with animated circular gauge and letter grade A–F
+- **Animated KPI cards** — numbers count up smoothly on page load. Total media size, total savings, completed jobs, workers online — each with week-over-week sparklines
+- **Savings predictions** — animated 30/90/365-day forecasts based on your transcoding pace
+- **Charts** — savings over time, codec distribution donut, resolution bar chart, storage timeline
+- **Interactive chart tooltips** — drag across charts for point-in-time details
+- **Time range filtering** — 7d / 30d / 90d / 1y across all dashboard views
+- **PDF health reports** — downloadable library health report
+
+#### Library Health Report
+
+Per-library health grades that answer *"which library should I tackle first?"*
+
+- **Health grade** (A–F) per library based on codec efficiency and optimization coverage
+- **Modern codec percentage** — what % of each library uses HEVC/AV1
+- **Top codecs** breakdown per library
+- **Potential savings** highlighted when significant
+- **Item count and total size** per library
+
+#### Codec Migration Tracker
+
+Track your library-wide modernization progress over time:
+
+- **Color-coded stacked bar** — HEVC (green), AV1 (blue), H.264 (orange), legacy (red)
+- **Modern codec percentage** — single headline number showing your progress
+- **Historical timeline chart** — watch your codec mix evolve week over week
+- **Estimated completion** based on current transcoding pace
+
+#### Cost Analytics Dashboard
+
+Understand the true cost of your transcoding operations:
+
+- **Total cloud cost** — cumulative spending across all jobs and instances
+- **Cost per GB saved** — efficiency metric (lower = better)
+- **Cloud vs. local comparison** — side-by-side cost analysis for the same work
+- **Monthly spend projection** — forecast based on current patterns
+- **Monthly spend chart** — bar chart showing spending trends
+
+#### Worker Performance Heatmap
+
+Visual grid of worker FPS by hour of day:
+
+- **Workers (Y-axis) × Hours (X-axis)** — color intensity represents FPS
+- **Hover tooltips** with exact FPS and job count
+- Identify peak performance windows and bottleneck periods
+- Spot underperforming workers or time-of-day patterns
+
+#### Job Timeline
+
+Visual Gantt-style timeline showing jobs across workers:
+
+- **Per-worker horizontal bars** sized by job duration
+- **Color-coded by status** — green (completed), blue (active), red (failed), gray (queued)
+- See parallelization, idle gaps, and transfer overlaps
+- Identify bottlenecks: *"Worker B was idle for 20 minutes waiting for upload"*
+
+#### Storage Savings Projection
+
+12-month savings forecast with confidence bands:
+
+- **KPI cards** — current size, projected size, potential savings, monthly pace
+- **Confidence bands** — optimistic to conservative range shown as shaded area
+- **Monthly breakdown** for precise forecasting
+
+#### Server Performance
+
+- Per-worker stats (FPS, compression ratio, failure rate, cloud badge)
+- Top opportunities — ranked list of untranscoded files with estimated savings and one-click queue
+- Cloud costs — hourly rate, total spend, cost per job
+
+### Command Palette
+
+Press **`⌘K`** from anywhere for instant access to everything:
+
+- **Navigate** — jump to any page (Library, Processing, Analytics, Intelligence, Settings, etc.)
+- **Search media** — type 2+ characters to find media items by title, showing year, codec, and file size
+- **Quick actions** — "Sync Libraries", "Run Analysis", "Export PDF Report", "Open Quick Transcode"
+- **Library-scoped actions** — type "analyze" to see "Run Analysis for Movies", "Run Analysis for TV Shows", etc.
+- **Recent actions** — your last 10 palette actions shown when search is empty for quick replay
+- Press **Enter** to execute the first match, **Escape** to dismiss
 
 ### Quick Transcode
 
@@ -198,21 +413,6 @@ Transcode arbitrary local files — not just Plex library items — through the 
 - **Instant probe** — ffprobe displays resolution, codec, bitrate, duration, audio info before you start
 - **Full config** — preset selector, codec/container/resolution/CRF/audio controls, server picker
 - **Non-destructive** — output saves as `{name} V2.{ext}` alongside the original
-
-### Analytics Dashboard
-
-Track the impact of your optimization work with a comprehensive analytics suite.
-
-- **Library health score** — weighted 0–100 grade (codec modernity 40%, bitrate appropriateness 30%, container format 15%, audio efficiency 15%) with letter grade A–F
-- **Trend KPI cards** — week-over-week comparison with directional arrows, sparkline mini-charts
-- **Savings predictions** — linear extrapolation of your daily savings rate to 30/90/365-day forecasts
-- **Charts** — savings over time, codec distribution donut, resolution bar chart, storage timeline with shaded savings area
-- **Interactive chart tooltips** — drag across charts for point-in-time details
-- **Server performance** — per-worker stats (FPS, compression ratio, failure rate, cloud badge)
-- **Top opportunities** — ranked list of untranscoded files with estimated savings and one-click queue
-- **Cloud costs** — hourly rate, total spend, cost per job
-- **Time range filtering** — 7d / 30d / 90d / 1y across all dashboard views
-- **PDF health reports** — downloadable library health report
 
 ### Notifications
 
@@ -229,49 +429,42 @@ Six fully configurable notification channels, each with per-event toggle control
 
 **10 event types:** job completed, job failed, analysis completed, server offline, server online, cloud deploy completed, cloud teardown completed, spend cap reached, queue stalled, library sync completed.
 
-Each channel can subscribe to any combination of events. Test buttons for every channel. Full notification history with status tracking.
-
-### Automation
-
-- **Scheduled library scans** — configurable interval (6h / 12h / daily / weekly) with optional post-sync analysis
-- **Sonarr/Radarr webhooks** — `POST /api/webhooks/ingest/{source_id}` auto-creates transcode jobs when new media arrives
-- **Folder watching** — monitor directories for new media files, auto-queue with configurable preset and delay
-- **Cloud auto-deploy** — automatically spin up a cloud GPU when jobs queue with no workers available
-- **Auto-analyze on sync** — intelligence analysis runs automatically after library sync
+Each channel can subscribe to any combination of events. Test buttons for every channel. Full notification history with status tracking. Notifications can also be triggered as automation rule actions.
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────┐
-│       macOS SwiftUI Frontend         │
-│     (MVVM, native dark theme)        │
-│                                      │
-│  Library ─ Transcode ─ Servers       │
-│  Analytics ─ Intelligence ─ Settings │
-│  Menu Bar Extra ─ Command Palette    │
-│  Onboarding ─ Push Notifications     │
-└────────────────┬─────────────────────┘
-                 │ REST + WebSocket
-                 ▼
-┌──────────────────────────────────────┐
-│       Python FastAPI Backend         │
-│        (port 9876, async)            │
-│                                      │
-│  17 API modules ─ 113 endpoints      │
-│  14 services ─ 6 background workers  │
-│  8 utility modules ─ 19 ORM models   │
-└────────┬──────────────┬──────────────┘
-         │              │
-         ▼              ▼
-┌──────────────┐  ┌────────────────────┐
-│    SQLite    │  │   Worker Servers   │
-│  (WAL mode)  │  │                    │
-│              │  │  Local macOS       │
-│  19 tables   │  │  Remote Linux      │
-│              │  │  Cloud GPU (A16)   │
-└──────────────┘  └────────────────────┘
+┌───────────────────────────────────────────┐
+│        macOS SwiftUI Frontend             │
+│      (MVVM, native dark theme)            │
+│                                           │
+│  Library ─ Intelligence ─ Automation      │
+│  Processing ─ Analytics ─ Servers         │
+│  Quick Transcode ─ Settings ─ Logs        │
+│  Command Palette ─ Onboarding ─ Help      │
+│  Media Detail ─ Push Notifications        │
+└──────────────────┬────────────────────────┘
+                   │ REST + WebSocket
+                   ▼
+┌───────────────────────────────────────────┐
+│        Python FastAPI Backend             │
+│         (port 9876, async)                │
+│                                           │
+│  21 API modules ─ 134 endpoints           │
+│  16 services ─ 6 background workers       │
+│  8 utility modules ─ 22 ORM models        │
+└──────────┬──────────────┬─────────────────┘
+           │              │
+           ▼              ▼
+┌──────────────┐  ┌─────────────────────────┐
+│    SQLite    │  │    Worker Servers        │
+│  (WAL mode)  │  │                         │
+│              │  │  Local macOS             │
+│  22 tables   │  │  Remote Linux (SSH)      │
+│              │  │  Cloud GPU (Vultr A16)   │
+└──────────────┘  └─────────────────────────┘
                          │ SSH + SFTP
                          ▼
                   ┌──────────────┐
@@ -286,11 +479,12 @@ Each channel can subscribe to any combination of events. Test buttons for every 
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | SwiftUI, AppKit (NSPanel), Combine — zero external dependencies |
+| **Frontend** | SwiftUI, AppKit (NSPanel), Combine, Swift Charts — zero external dependencies |
 | **Backend** | FastAPI, SQLAlchemy 2.0 (async), Pydantic v2, Uvicorn |
 | **Database** | SQLite with WAL mode, async via aiosqlite |
 | **SSH** | asyncssh for remote command execution, SFTP, and parallel multi-stream transfers |
 | **Transcoding** | FFmpeg/FFprobe with NVENC GPU acceleration and automatic fallback |
+| **Quality** | VMAF (libvmaf) for perceptual quality validation |
 | **Cloud** | Vultr v2 REST API (httpx async) for on-demand GPU instances |
 | **Notifications** | SMTP (aiosmtplib), Discord/Slack/Telegram webhooks, macOS UNUserNotificationCenter |
 | **Real-time** | Native WebSocket with pub/sub event system (25+ event types) |
@@ -308,6 +502,12 @@ Each channel can subscribe to any combination of events. Test buttons for every 
 - A **Plex Media Server** with a valid account
 
 ### Installation
+
+#### Option 1: Download the DMG (Recommended)
+
+Download the latest release from the [Releases page](https://github.com/bytePatrol/MediaFlow/releases) and drag MediaFlow.app to your Applications folder.
+
+#### Option 2: Build from Source
 
 ```bash
 # Clone the repository
@@ -363,11 +563,13 @@ swift build && .build/debug/MediaFlow
 ### First Launch
 
 1. Open MediaFlow — the app connects to the backend automatically
-2. The **onboarding wizard** walks you through setup: Connect Plex (OAuth) -> Add Worker -> Ready
+2. The **onboarding wizard** walks you through setup: Connect Plex (OAuth) → Add Worker → Ready
 3. Your servers and libraries sync automatically after sign-in
-4. Navigate to the **Library** tab to browse your media
-5. Head to **Intelligence** to run your first analysis
+4. Navigate to the **Library** tab to browse your media — click any item for full detail
+5. Head to **Intelligence** to run your first analysis and see cost-benefit recommendations
 6. Go to **Servers** to add remote workers or deploy a cloud GPU
+7. Set up **Automation** rules to keep your library optimized automatically
+8. Check **Analytics** for health scores, codec migration progress, and storage projections
 
 ---
 
@@ -382,15 +584,18 @@ The backend exposes a full REST API on `http://localhost:9876`. Interactive docu
 
 | Prefix | Module | Endpoints | Description |
 |--------|--------|-----------|-------------|
-| `/api/health` | health.py | 1 | Health check |
+| `/api/health` | health.py | 1 | Health check with version |
 | `/api/plex` | plex.py | 10 | OAuth, server management, SSH config, library sync |
 | `/api/library` | library.py | 7 | Media queries, filtering, statistics, bulk ID lookup, export |
-| `/api/transcode` | transcode.py | 10 | Job CRUD, queue, dry-run, probe, manual transcode |
+| `/api/transcode` | transcode.py | 15 | Job CRUD, queue, dry-run, probe, manual transcode, queue strategy, reorder |
 | `/api/presets` | presets.py | 7 | Encoding preset CRUD, import/export |
 | `/api/servers` | servers.py | 12 | Workers, provisioning, benchmarks, health |
 | `/api/cloud` | cloud.py | 6 | GPU deploy/teardown, plans, cost tracking, settings |
-| `/api/analytics` | analytics.py | 14 | Overview, trends, predictions, health score, sparklines, storage timeline, server performance |
-| `/api/recommendations` | recommendations.py | 8 | Analysis (full + per-library), batch queue, summary, history, savings |
+| `/api/analytics` | analytics.py | 22 | Overview, trends, predictions, health, sparklines, storage timeline, heatmap, job timeline, codec migration, library health, cost analytics, codec strategy, storage projection, VMAF stats |
+| `/api/recommendations` | recommendations.py | 10 | Analysis (full + per-library), batch queue, summary, history, savings, dismiss with reason |
+| `/api/automation` | automation.py | 5 | Rule CRUD, toggle, fire |
+| `/api/optimize` | optimize.py | 2 | One-click library optimization |
+| `/api/comparison` | comparison.py | 2 | Visual A/B comparison data |
 | `/api/notifications` | notifications.py | 7 | Channel CRUD, test, events registry, history |
 | `/api/settings` | settings.py | 3 | App configuration key-value store |
 | `/api/tags` | tags.py | 7 | Custom tag CRUD, bulk apply/remove |
@@ -401,7 +606,7 @@ The backend exposes a full REST API on `http://localhost:9876`. Interactive docu
 | `/api/logs` | logs.py | 3 | Log retrieval, diagnostics, export |
 | `/ws` | websocket.py | 1 | WebSocket pub/sub for real-time updates |
 
-**Total: 113 endpoints across 18 modules**
+**Total: 134 endpoints across 21 modules**
 
 ### WebSocket Events
 
@@ -412,7 +617,9 @@ The `/ws` endpoint streams real-time events using a pub/sub model. Key event cat
 | **Jobs** | `job.progress`, `job.completed`, `job.failed`, `job.preupload_progress` |
 | **Cloud** | `cloud.deploy_progress`, `cloud.deploy_completed`, `cloud.deploy_failed`, `cloud.teardown_completed`, `cloud.spend_cap_reached`, `cloud.auto_deploy_triggered`, `cloud.jobs_reassigned` |
 | **Library** | `sync.completed`, `analysis.completed` |
+| **Queue** | `queue.reordered`, `queue.strategy_changed` |
 | **Servers** | `server.offline`, `server.online`, `server.metrics` |
+| **Automation** | `automation.rule_fired` |
 | **Notifications** | `notification.push` |
 
 ---
@@ -426,10 +633,10 @@ MediaFlow/
 │   │   ├── main.py                 # FastAPI app with lifespan
 │   │   ├── config.py               # Environment-based settings
 │   │   ├── database.py             # SQLAlchemy engine + migrations
-│   │   ├── api/                    # Route handlers (18 modules)
-│   │   ├── models/                 # ORM models (19 tables)
+│   │   ├── api/                    # Route handlers (21 modules)
+│   │   ├── models/                 # ORM models (22 tables)
 │   │   ├── schemas/                # Pydantic request/response schemas
-│   │   ├── services/               # Business logic + cloud provisioning
+│   │   ├── services/               # Business logic, automation, VMAF, cloud provisioning
 │   │   ├── workers/                # Background processors (6 workers)
 │   │   └── utils/                  # SSH, FFmpeg, FFprobe, path resolution, notifications
 │   ├── requirements.txt
@@ -441,15 +648,18 @@ MediaFlow/
 │       ├── Models/                 # Codable data models
 │       ├── ViewModels/             # ObservableObject view models
 │       ├── Views/                  # SwiftUI views by feature
-│       │   ├── Intelligence/       # Recommendations, analysis
-│       │   ├── Library/            # Media browser, filters, collections
-│       │   ├── Transcode/          # Queue, job cards, manual transcode
+│       │   ├── Intelligence/       # Recommendations, analysis, cost-benefit
+│       │   ├── Library/            # Media browser, filters, collections, item detail
+│       │   ├── Transcode/          # Queue, job cards, strategies, drag-drop
 │       │   ├── Servers/            # Worker management, cloud deploy
-│       │   ├── Analytics/          # Dashboard, charts
+│       │   ├── Analytics/          # Dashboard, health, migration, cost, heatmap, timeline, VMAF
+│       │   ├── Automation/         # Rules engine, trigger builder
 │       │   ├── Settings/           # All settings tabs, config panels
+│       │   ├── Navigation/         # Sidebar, content view, command palette
 │       │   ├── Onboarding/         # First-run wizard
+│       │   ├── Help/               # 22-topic searchable help system
 │       │   ├── Logs/               # System logs
-│       │   └── Components/         # Shared UI components
+│       │   └── Components/         # Animated counters, shared UI components
 │       ├── Services/               # Backend API + WebSocket + Notifications
 │       ├── Networking/             # HTTP + WebSocket transport layers
 │       ├── Theme/                  # Color system, typography
@@ -460,12 +670,13 @@ MediaFlow/
 
 | Area | Count |
 |------|-------|
-| Backend Python files | 86 |
-| Frontend Swift files | 73 |
-| API endpoints | 113 |
-| Database tables | 19 |
+| Backend Python files | 96 |
+| Frontend Swift files | 88 |
+| API endpoints | 134 |
+| Database tables | 22 |
 | Background workers | 6 |
 | WebSocket event types | 25+ |
+| Help topics | 22 |
 
 ---
 
@@ -494,7 +705,7 @@ Additional settings are configured in-app via **Settings**:
 |-------------|-----------------|
 | **General** | Plex connection (OAuth), backend URL |
 | **Storage** | Path mappings (NAS mount → local path) |
-| **Scheduling** | Scan intervals, post-sync analysis |
+| **Scheduling** | Scan intervals, active hours, day-of-week rules |
 | **Intelligence** | 9 analysis thresholds (min file sizes, max plays, group sizes, etc.) |
 | **Cloud GPU** | Vultr API key, default plan/region, spend caps, idle timeout, auto-deploy |
 | **Notifications** | Email/Discord/Slack/Telegram/Webhook/Push channel configuration |
@@ -504,24 +715,27 @@ Additional settings are configured in-app via **Settings**:
 
 ## Database Schema
 
-19 tables managed via SQLAlchemy with automatic migrations:
+22 tables managed via SQLAlchemy with automatic migrations:
 
 | Table | Purpose |
 |-------|---------|
 | `plex_servers` | Plex server connections with SSH config |
 | `plex_libraries` | Synced Plex library metadata |
-| `media_items` | Full media file metadata (codec, resolution, bitrate, HDR, audio, etc.) |
+| `media_items` | Full media file metadata (codec, resolution, bitrate, HDR, audio, play count, etc.) |
 | `transcode_jobs` | Job queue with status, progress, ffmpeg command, worker assignment |
 | `transcode_presets` | Encoding presets (4 built-in + custom) |
 | `worker_servers` | Local/remote/cloud workers with capabilities and cloud instance tracking |
-| `job_logs` | Per-job completion stats (sizes, duration, FPS, codec pair, cost) |
-| `recommendations` | Intelligence results with type, severity, savings, priority, confidence |
+| `job_logs` | Per-job completion stats (sizes, duration, FPS, codec pair, cost, VMAF score) |
+| `recommendations` | Intelligence results with type, severity, savings, priority, confidence, ROI |
+| `recommendation_feedback` | Dismiss reasons and preference learning data |
 | `analysis_runs` | Analysis execution history with per-library tracking |
+| `automation_rules` | Trigger → condition → action rule definitions |
+| `codec_migration_snapshots` | Historical codec distribution snapshots for migration tracking |
 | `server_benchmarks` | Network speed tests per worker |
 | `cloud_cost_records` | Per-job and per-instance cloud cost tracking |
 | `custom_tags` | User-defined tags with colors |
 | `media_tags` | Many-to-many tag assignments |
-| `app_settings` | Key-value configuration store |
+| `app_settings` | Key-value configuration store (queue strategy, preferences, etc.) |
 | `filter_presets` | Saved library filter configurations |
 | `notification_configs` | Notification channel settings with event subscriptions |
 | `notification_logs` | Dispatch history with status tracking |
