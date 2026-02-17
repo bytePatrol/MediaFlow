@@ -96,7 +96,7 @@ async def get_diagnostics():
             "hostname": platform.node(),
         },
         "app": {
-            "version": "1.0.0",
+            "version": "1.0.1",
             "pid": os.getpid(),
             "uptime_seconds": None,  # Could track via lifespan
             "db_size_bytes": db_size,

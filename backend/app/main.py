@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="MediaFlow API",
     description="Plex Media Library Optimizer & Distributed Transcoder",
-    version="1.0.0",
+    version="1.0.1",
     lifespan=lifespan,
 )
 
