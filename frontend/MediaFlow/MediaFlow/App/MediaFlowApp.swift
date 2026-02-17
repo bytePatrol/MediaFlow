@@ -2,8 +2,34 @@ import SwiftUI
 import AppKit
 import UserNotifications
 
+class AppDelegate: NSObject, NSApplicationDelegate {
+    private var menuObserver: Any?
+    private var isStripping = false
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // SwiftUI recreates menus after launch, so observe and strip the
+        // Help menu whenever it reappears (no Help Book is registered).
+        stripHelpMenu()
+        menuObserver = NotificationCenter.default.addObserver(
+            forName: NSMenu.didAddItemNotification,
+            object: NSApp.mainMenu,
+            queue: .main
+        ) { [weak self] _ in
+            self?.stripHelpMenu()
+        }
+    }
+
+    private func stripHelpMenu() {
+        guard !isStripping, let mainMenu = NSApp.mainMenu else { return }
+        isStripping = true
+        mainMenu.items.removeAll { $0.title == "Help" }
+        isStripping = false
+    }
+}
+
 @main
 struct MediaFlowApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
     @StateObject private var transcodeViewModel = TranscodeViewModel()
     @StateObject private var processManager = BackendProcessManager.shared
@@ -53,6 +79,9 @@ struct MediaFlowApp: App {
         }
         .windowStyle(.titleBar)
         .defaultSize(width: 1440, height: 900)
+        .commands {
+            CommandGroup(replacing: .help) { }
+        }
 
         Settings {
             SettingsView()

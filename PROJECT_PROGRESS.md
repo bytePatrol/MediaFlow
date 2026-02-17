@@ -1,6 +1,6 @@
 # MediaFlow — Project Progress
 
-**Last Updated**: 2026-02-13
+**Last Updated**: 2026-02-14
 **GitHub**: https://github.com/bytePatrol/MediaFlow
 **License**: MIT
 
@@ -46,13 +46,13 @@ chmod +x run.sh
 
 | Area | Count |
 |------|-------|
-| Backend Python files | ~84 |
-| Frontend Swift files | ~71 |
+| Backend Python files | ~86 |
+| Frontend Swift files | ~73 |
 | API endpoints | 117 |
 | Database models (tables) | 18 |
-| Backend services | 14 (added notification helper) |
+| Backend services | 14 (incl. notification, recommendation, cloud provisioning) |
 | Background workers | 6 (transcode, health, cloud_monitor, sync, scheduler, folder_watcher) |
-| Frontend views | 39 (added MenuBarContentView, CommandPaletteView, OnboardingView, WebhookConfigPanel, EmailConfigPanel + more) |
+| Frontend views | 41 (added PushConfigPanel, MenuBarContentView, CommandPaletteView, OnboardingView + more) |
 | Frontend view models | 8 |
 | Built-in transcode presets | 4 (Balanced, Storage Saver, Mobile Optimized, Ultra Fidelity) |
 
@@ -81,7 +81,7 @@ chmod +x run.sh
 - [x] Dry-run simulation mode
 - [x] Preset system (built-in + custom CRUD)
 
-### Phase 3: Intelligence — COMPLETE (major upgrade 2026-02-12)
+### Phase 3: Intelligence — COMPLETE (major upgrades 2026-02-12, 2026-02-14)
 - [x] Codec Modernization analyzer
 - [x] Quality Overkill detection
 - [x] Duplicate Detection
@@ -102,6 +102,8 @@ chmod +x run.sh
 - [x] **Analysis run tracking** — `analysis_runs` table with history endpoint and expandable UI
 - [x] **Priority badges** — color-coded score on each recommendation card
 - [x] **Confidence indicators** — high/medium/low dot with tooltip (learned vs estimated)
+- [x] **Per-library analysis** — `library_id` FK on `AnalysisRun`, library-scoped summary endpoint, history with library badges
+- [x] **Library-contextual empty states** — EmptyStateView text adapts to selected library filter
 
 ### Phase 4: Distributed System — COMPLETE
 - [x] Worker server CRUD (local + remote via SSH)
@@ -138,7 +140,7 @@ chmod +x run.sh
 - [x] **Collection builder** — CollectionBuilderPanel (NSPanel), create/add-to-existing flow
 - [N/A] **Batch metadata editing** — covered by tags + collections; Plex metadata (titles, genres) should be edited in Plex directly
 
-### Phase 6: Polish & Integration — 95% COMPLETE
+### Phase 6: Polish & Integration — COMPLETE
 - [x] WebSocket notifications for all events
 - [x] Active jobs dock (floating job progress)
 - [x] Quality badges with color coding
@@ -175,15 +177,16 @@ chmod +x run.sh
 - [x] **Drag-and-drop transcode** — drop video files on sidebar, auto-navigates to Quick Transcode
 - [x] **Menu bar extra** — MenuBarExtra scene with backend status, active jobs, Open/Quit
 - [x] **Command palette (Cmd+K)** — fuzzy search across navigation items and actions
-- [ ] **macOS push notifications** — System notification center integration
+- [x] **macOS push notifications** — Backend dispatches via WebSocket `notification.push` event, frontend unified handler with `UNUserNotificationCenter`
 
-### Phase 7: Documentation & Release — COMPLETE (for public release)
-- [x] README.md with full feature docs, build instructions, API reference
+### Phase 7: Documentation & Release — COMPLETE
+- [x] Comprehensive README.md with feature docs, architecture, API reference, configuration, database schema
 - [x] Architecture diagram
-- [x] Sample design screenshots in README
+- [x] PROJECT_PROGRESS.md with full implementation history
 - [x] MIT License
 - [x] .env.example with placeholder values
 - [x] GitHub repo with description and 14 topic tags
+- [x] Project cleanup — removed Xcode project files, sample_designs, Dropbox conflicts, build artifacts
 
 ---
 
@@ -194,7 +197,7 @@ Frontend (SwiftUI macOS 14+)
   └── MVVM pattern
   └── APIClient (REST) + WebSocketClient (real-time)
   └── BackendService (typed API wrapper)
-  └── 8 ViewModels → 39 Views
+  └── 8 ViewModels → 41 Views
   └── MenuBarExtra scene (menu bar widget)
   └── Command palette (Cmd+K fuzzy search)
 
@@ -204,7 +207,7 @@ Backend (Python FastAPI, port 9876)
   └── 6 background workers (transcode, health, cloud_monitor, sync, scheduler, folder_watcher)
   └── 8 utility modules (SSH, FFmpeg, FFprobe, paths, security, notify)
   └── SQLite with WAL mode, async via aiosqlite
-  └── 18 ORM models
+  └── 18 ORM models (incl. analysis_runs with library_id FK)
 ```
 
 ---
@@ -245,7 +248,7 @@ Backend (Python FastAPI, port 9876)
 | Servers | ServerManagementView, ServerCardView, AddServerSheet, **CloudDeployPanel**, ServerComparisonView | ServerManagementViewModel |
 | Analytics | AnalyticsDashboardView, StatisticsCardView | AnalyticsViewModel |
 | Intelligence | RecommendationsView, RecommendationCardView | RecommendationViewModel |
-| Settings | SettingsView (**incl. Intelligence, Cloud GPU, Notifications tabs**), **EmailConfigPanel**, **WebhookConfigPanel** | PlexAuthViewModel |
+| Settings | SettingsView (**incl. Intelligence, Cloud GPU, Notifications tabs**), **EmailConfigPanel**, **WebhookConfigPanel**, **PushConfigPanel** | PlexAuthViewModel |
 | Logs | LogsView | LogsViewModel |
 | Components | EmptyStateView, GlassPanel, LoadingSkeleton, QualityBadge, StatusIndicator | — |
 
@@ -263,7 +266,7 @@ Backend (Python FastAPI, port 9876)
 | WorkerServer | worker_servers | hostname, SSH creds, capabilities, status, **cloud_* fields** |
 | JobLog | job_logs | size_before, size_after, duration, avg_fps, cost |
 | Recommendation | recommendations | type, severity, estimated_savings, dismissed, actioned, **priority_score, confidence, analysis_run_id** |
-| **AnalysisRun** | **analysis_runs** | **started_at, completed_at, total_items_analyzed, recommendations_generated, total_estimated_savings, trigger** |
+| **AnalysisRun** | **analysis_runs** | **started_at, completed_at, total_items_analyzed, recommendations_generated, total_estimated_savings, trigger, library_id (FK)** |
 | ServerBenchmark | server_benchmarks | upload_mbps, download_mbps, latency_ms |
 | **CloudCostRecord** | **cloud_cost_records** | **worker_server_id, job_id, hourly_rate, cost_usd, record_type** |
 | CustomTag | custom_tags | name, color, category |
@@ -740,6 +743,75 @@ Major performance session: pre-upload pipeline, parallel multi-stream transfers,
 
 ---
 
+## macOS Push Notifications & Per-Library Intelligence (2026-02-14)
+
+Two final features completing Phase 6 and enhancing Phase 3, plus project cleanup.
+
+### Feature 1: macOS Push Notifications
+
+**Problem**: The backend "push" notification channel just logged a message. The frontend had 4 hardcoded WebSocket event handlers (job.completed, job.failed, sync.completed, analysis.completed) instead of being configurable like email/Discord/Slack/Telegram.
+
+**Solution**: Unified push notification pipeline via WebSocket:
+
+**Backend** (`notification_service.py`):
+- `_send_push()` — Formats title via `_format_subject()`, body via `_format_plain_body()`, broadcasts `notification.push` WebSocket event
+- `test_push()` — Static method to broadcast a test push notification
+- `notifications.py` — Added `elif config.type == "push":` case to test endpoint
+
+**Frontend** (`WebSocketService.swift`):
+- Replaced 4 hardcoded event subscriptions with single `notification.push` handler
+- Extracts `title`, `body`, `event` from message data, calls `NotificationService.shared.showNotification()`
+- All notification events now configurable per-channel (same as email, Discord, etc.)
+
+**Frontend** (`PushConfigPanel.swift` — NEW):
+- NSPanel-based config following WebhookConfigPanel pattern
+- Name field + event toggles (no URL/token fields — empty config dict)
+- Save/Test/Cancel footer
+- Integrated into SettingsView with "Add Push" button and edit routing
+
+### Feature 2: Per-Library Intelligence Analysis
+
+**Problem**: Analysis was global-only. `AnalysisRun` didn't track which library was analyzed. Summary endpoint couldn't scope to a single library. History didn't show library context.
+
+**Solution**: Library-scoped analysis throughout the stack:
+
+**Backend**:
+1. `AnalysisRun.library_id` — New FK column (`INTEGER REFERENCES plex_libraries(id)`)
+2. `run_library_analysis()` — Sets `library_id` on the AnalysisRun record
+3. `get_summary(library_id=)` — All 5 aggregate queries (total, by_type, savings, dismissed, actioned) filter via `.join(MediaItem).where(MediaItem.plex_library_id == library_id)` when set
+4. `get_analysis_history()` — Outerjoin to PlexLibrary, returns `library_id` and `library_title`
+5. Summary API endpoint accepts `library_id` query parameter
+
+**Frontend**:
+1. `AnalysisRunInfo` — Added `libraryId` and `libraryTitle` fields
+2. `BackendService.getRecommendationSummary(libraryId:)` — Passes optional library filter
+3. `RecommendationViewModel` — Passes `selectedLibraryId` to summary call
+4. `RecommendationsView` — Library name badges in history rows, contextual empty state text
+
+### Project Cleanup
+
+Removed ~525 MB of unnecessary files:
+- Dropbox conflicted copies (`.gitignore` updated with `*conflicted copy*` pattern)
+- `__pycache__/` directories throughout backend
+- `.build/` SPM build artifacts
+- `.DS_Store` files
+- `sample_designs/` folder (placeholder mockups no longer needed)
+- `frontend/MediaFlow/project.yml` and `MediaFlow.xcodeproj/` (XcodeGen files — SPM-only now)
+
+### Files Created
+- `frontend/.../Views/Settings/PushConfigPanel.swift` — NSPanel push notification config
+
+### Files Modified
+**Backend**: `notification_service.py`, `notifications.py`, `recommendation.py` (model), `database.py`, `recommendation.py` (schema), `recommendation_service.py`, `recommendations.py` (API)
+
+**Frontend**: `Recommendation.swift`, `BackendService.swift`, `RecommendationViewModel.swift`, `WebSocketService.swift`, `SettingsView.swift`, `RecommendationsView.swift`
+
+### Commits
+- `01fdf55` — Add 16-feature polish: reliability, automation, visualization, and UX
+- Plus: Push notifications, per-library intelligence, project cleanup, README rewrite
+
+---
+
 ## Known Issues & Tech Debt
 
 1. **NSPanel workaround** — macOS SPM apps have broken keyboard focus in `.sheet()` modals. AddServerSheet, SettingsView SSH form, CloudDeployPanel, and CloudAPIKeyPanel use NSPanel with NSHostingView as a workaround. Requirements: `.nonactivatingPanel` in styleMask, `becomesKeyOnlyIfNeeded = false`, `NSApp.activate(ignoringOtherApps: true)`.
@@ -778,6 +850,8 @@ aiofiles>=23.2.0
 python-multipart>=0.0.6
 websockets>=12.0
 asyncssh>=2.14.0
+aiosmtplib>=3.0.0
+fpdf2>=2.7.0
 ```
 
 ### Frontend (Swift)
@@ -794,12 +868,14 @@ asyncssh>=2.14.0
 ## What to Work On Next
 
 ### Verification
-1. **Test all 16 polish features end-to-end** — functional testing with running backend
-2. **Verify CUDA hardware decode works** — `_maybe_upgrade_to_nvenc()` sets `hw_accel="nvenc"` for cloud workers. Confirm `-hwaccel cuda` in ffmpeg command and FPS boost over CPU decode.
-3. **Test pre-upload pipeline end-to-end** — Queue 2+ jobs targeting same cloud GPU worker. Verify source pre-staging skips upload for second job.
-4. **Verify parallel SSH download with progress** — Download now passes `total_size`, so parallel SSH should be used for large outputs.
+1. **Test push notifications end-to-end** — Create push config in Settings → verify test notification appears as macOS banner
+2. **Test per-library analysis** — Select a library → Run Analysis → verify summary shows library-scoped stats, history shows library badge
+3. **Verify CUDA hardware decode works** — `_maybe_upgrade_to_nvenc()` sets `hw_accel="nvenc"` for cloud workers. Confirm `-hwaccel cuda` in ffmpeg command and FPS boost over CPU decode.
+4. **Test pre-upload pipeline end-to-end** — Queue 2+ jobs targeting same cloud GPU worker. Verify source pre-staging skips upload for second job.
+5. **Verify parallel SSH download with progress** — Download now passes `total_size`, so parallel SSH should be used for large outputs.
 
-### Remaining Features
-1. **macOS push notifications** — System notification center integration (works in Xcode builds; SPM builds gracefully skip).
-2. **App icon** — Currently using default Xcode icon.
-3. **Intelligence enhancements** — Per-library analysis, schedule-based auto-analysis, recommendation grouping in UI.
+### Remaining Ideas
+1. **App icon** — Currently using default icon.
+2. **Schedule-based auto-analysis** — Configurable intervals for automatic intelligence runs (beyond sync-triggered).
+3. **PDF report export** — Generate downloadable analytics/recommendation reports.
+4. **Multi-user support** — User accounts with role-based access control.

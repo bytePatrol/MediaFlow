@@ -33,10 +33,13 @@ echo "  ✓ Swift binary: $SWIFT_BIN"
 echo "[2/5] Freezing Python backend with PyInstaller..."
 cd "$BACKEND_DIR"
 
+# Activate the backend venv
+source venv/bin/activate
+
 # Ensure PyInstaller is available
 if ! python3 -c "import PyInstaller" 2>/dev/null; then
     echo "  Installing PyInstaller..."
-    pip3 install pyinstaller --quiet
+    pip install pyinstaller --quiet
 fi
 
 # Clean previous PyInstaller output
@@ -78,6 +81,7 @@ rm -rf "$ICONSET_DIR"
 
 # ─── Step 4: Assemble the .app bundle ──────────────────────────────────────
 echo "[4/5] Assembling app bundle..."
+cd "$FRONTEND_DIR"
 
 # Copy Swift binary
 cp "$SWIFT_BIN" "$CONTENTS/MacOS/MediaFlow"
@@ -85,7 +89,7 @@ chmod +x "$CONTENTS/MacOS/MediaFlow"
 
 # Copy SPM resource bundle (Bundle.module resources)
 SPM_BUNDLE_DIR="$(swift build -c release --show-bin-path)"
-SPM_BUNDLE=$(find "$SPM_BUNDLE_DIR" -name "MediaFlow_MediaFlow.bundle" -maxdepth 1 2>/dev/null | head -1)
+SPM_BUNDLE=$(find "$SPM_BUNDLE_DIR" -maxdepth 1 -name "MediaFlow_MediaFlow.bundle" 2>/dev/null | head -1)
 if [ -n "$SPM_BUNDLE" ] && [ -d "$SPM_BUNDLE" ]; then
     cp -R "$SPM_BUNDLE" "$CONTENTS/Resources/"
     echo "  ✓ SPM resource bundle copied"

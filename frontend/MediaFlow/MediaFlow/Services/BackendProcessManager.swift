@@ -157,7 +157,7 @@ class BackendProcessManager: ObservableObject {
                 if let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) {
                     // Verify it's actually our API
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       json["service"] as? String == "MediaFlow API" {
+                       json["service"] as? String == "MediaFlow" {
                         return true
                     }
                 }
