@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MediaTableView: View {
     @ObservedObject var viewModel: LibraryViewModel
+    var onItemTap: ((MediaItem) -> Void)? = nil
     @State private var showColumnPicker = false
 
     var body: some View {
@@ -69,7 +70,8 @@ struct MediaTableView: View {
                             item: item,
                             isSelected: viewModel.selectedItems.contains(item.id),
                             columnConfig: viewModel.columnConfig,
-                            onToggle: { viewModel.toggleSelection(item.id) }
+                            onToggle: { viewModel.toggleSelection(item.id) },
+                            onItemTap: onItemTap
                         )
                         Divider().background(Color.mfGlassBorder)
                     }
@@ -202,6 +204,7 @@ struct SortableHeader: View {
 
 struct MediaGridView: View {
     @ObservedObject var viewModel: LibraryViewModel
+    var onItemTap: ((MediaItem) -> Void)? = nil
 
     let columns = [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 16)]
 
@@ -209,9 +212,9 @@ struct MediaGridView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(viewModel.items) { item in
-                    MediaGridCard(item: item, isSelected: viewModel.selectedItems.contains(item.id)) {
+                    MediaGridCard(item: item, isSelected: viewModel.selectedItems.contains(item.id), onToggle: {
                         viewModel.toggleSelection(item.id)
-                    }
+                    }, onItemTap: onItemTap)
                     .onAppear {
                         if item.id == viewModel.items.last?.id,
                            viewModel.currentPage < viewModel.totalPages {
@@ -233,7 +236,8 @@ struct MediaGridView: View {
 struct MediaGridCard: View {
     let item: MediaItem
     let isSelected: Bool
-    let onTap: () -> Void
+    let onToggle: () -> Void
+    var onItemTap: ((MediaItem) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -258,11 +262,15 @@ struct MediaGridCard: View {
                 .aspectRatio(2/3, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.mfPrimary)
-                        .padding(6)
+                // Checkbox overlay
+                Button(action: onToggle) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 18))
+                        .foregroundColor(isSelected ? .mfPrimary : .white.opacity(0.6))
+                        .shadow(color: .black.opacity(0.5), radius: 2)
                 }
+                .buttonStyle(.plain)
+                .padding(6)
             }
 
             Text(item.title)
@@ -284,7 +292,8 @@ struct MediaGridCard: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(isSelected ? Color.mfPrimary.opacity(0.5) : Color.mfGlassBorder, lineWidth: 1)
         )
-        .onTapGesture { onTap() }
+        .contentShape(Rectangle())
+        .onTapGesture { onItemTap?(item) }
     }
 
     private var thumbnailPlaceholder: some View {

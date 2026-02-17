@@ -71,6 +71,21 @@ struct RecommendationCardView: View {
                         .background(Color.mfSuccess.opacity(0.1))
                         .clipShape(Capsule())
                     }
+
+                    // ROI badge
+                    if let roi = recommendation.roiScore, roi > 0 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "chart.line.uptrend.xyaxis")
+                                .font(.system(size: 9))
+                            Text(recommendation.roiDisplayLabel)
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .foregroundColor(roiColor(recommendation.roiScore))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(roiColor(recommendation.roiScore).opacity(0.1))
+                        .clipShape(Capsule())
+                    }
                 }
 
                 if let desc = recommendation.description {
@@ -104,6 +119,27 @@ struct RecommendationCardView: View {
                               : "Estimated from codec/bitrate analysis")
                     }
 
+                    // Cost/Time estimate
+                    if let time = recommendation.estimatedTranscodeTime, time > 0 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "clock")
+                                .font(.system(size: 9))
+                            Text(recommendation.formattedTranscodeTime)
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(.mfTextMuted)
+                    }
+
+                    if let cost = recommendation.estimatedCloudCost, cost > 0 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "cloud")
+                                .font(.system(size: 9))
+                            Text(recommendation.formattedCloudCost)
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(.mfTextMuted)
+                    }
+
                     Spacer()
 
                     Button { onQueue?() } label: {
@@ -130,5 +166,13 @@ struct RecommendationCardView: View {
                 .stroke(severityColor.opacity(0.2), lineWidth: 1)
         )
         .hoverCard()
+    }
+
+    private func roiColor(_ score: Double?) -> Color {
+        guard let roi = score else { return .mfTextMuted }
+        if roi >= 10 { return .mfSuccess }
+        if roi >= 5 { return .mfInfo }
+        if roi >= 1 { return .mfWarning }
+        return .mfError
     }
 }

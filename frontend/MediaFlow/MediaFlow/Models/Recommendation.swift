@@ -17,6 +17,12 @@ struct Recommendation: Identifiable, Codable {
     var createdAt: String?
     var mediaTitle: String?
     var mediaFileSize: Int?
+    var estimatedTranscodeTime: Double?
+    var estimatedCloudCost: Double?
+    var roiScore: Double?
+    var dismissReason: String?
+    var roiLabel: String?
+    var costLabel: String?
 
     var typeDisplayName: String {
         switch type {
@@ -61,6 +67,35 @@ struct Recommendation: Identifiable, Codable {
         if c >= 0.8 { return "High" }
         if c >= 0.4 { return "Medium" }
         return "Low"
+    }
+
+    var roiDisplayLabel: String {
+        guard let roi = roiScore else { return "" }
+        if roi >= 10 { return "Excellent ROI" }
+        if roi >= 5 { return "Good ROI" }
+        if roi >= 1 { return "Fair ROI" }
+        return "Low ROI"
+    }
+
+    var roiColor: String {
+        guard let roi = roiScore else { return "mfTextMuted" }
+        if roi >= 10 { return "mfSuccess" }
+        if roi >= 5 { return "mfInfo" }
+        if roi >= 1 { return "mfWarning" }
+        return "mfError"
+    }
+
+    var formattedTranscodeTime: String {
+        guard let seconds = estimatedTranscodeTime, seconds > 0 else { return "--" }
+        let h = Int(seconds) / 3600
+        let m = (Int(seconds) % 3600) / 60
+        if h > 0 { return "\(h)h \(m)m" }
+        return "\(m)m"
+    }
+
+    var formattedCloudCost: String {
+        guard let cost = estimatedCloudCost, cost > 0 else { return "--" }
+        return String(format: "$%.2f", cost)
     }
 }
 

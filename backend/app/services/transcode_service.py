@@ -444,11 +444,14 @@ class TranscodeService:
             logger.error("Auto-deploy check failed: %s", e)
 
     async def get_jobs(self, status: Optional[str] = None,
+                       media_item_id: Optional[int] = None,
                        page: int = 1, page_size: int = 50) -> Dict[str, Any]:
         query = select(TranscodeJob)
         if status:
             statuses = [s.strip() for s in status.split(",")]
             query = query.where(TranscodeJob.status.in_(statuses))
+        if media_item_id is not None:
+            query = query.where(TranscodeJob.media_item_id == media_item_id)
 
         count_query = select(func.count()).select_from(query.subquery())
         total_result = await self.session.execute(count_query)

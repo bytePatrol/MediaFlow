@@ -23,7 +23,7 @@ class RecommendationViewModel: ObservableObject {
         let categoryOrder = [
             "codec_upgrade", "quality_overkill", "duplicate", "low_quality",
             "storage_optimization", "audio_optimization", "container_modernize",
-            "hdr_to_sdr", "batch_similar",
+            "hdr_to_sdr", "batch_similar", "viewing_pattern",
         ]
         let grouped = Dictionary(grouping: recommendations, by: { $0.type })
         var result: [(String, [Recommendation])] = []
@@ -85,10 +85,16 @@ class RecommendationViewModel: ObservableObject {
         }
     }
 
-    func dismissRecommendation(_ id: Int) async {
-        let client = APIClient(baseURL: service.client.baseURL)
-        struct Empty: Codable {}
-        let _: [String: AnyCodable]? = try? await client.post("/api/recommendations/\(id)/dismiss")
+    func dismissRecommendation(_ id: Int, reason: String? = nil) async {
+        do {
+            if let reason = reason {
+                try await service.dismissRecommendationWithReason(id: id, reason: reason)
+            } else {
+                try await service.dismissRecommendationWithReason(id: id, reason: nil)
+            }
+        } catch {
+            print("Failed to dismiss: \(error)")
+        }
         await loadRecommendations()
     }
 }

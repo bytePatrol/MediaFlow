@@ -32,6 +32,7 @@ async def init_database():
         custom_tag, notification_config, app_settings, filter_preset,
         server_benchmark, cloud_cost, notification_log,
         webhook_source, watch_folder,
+        automation_rule, recommendation_feedback, codec_migration_snapshot,
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -82,6 +83,14 @@ async def _run_migrations(conn):
         ("transcode_jobs", "validation_status", "VARCHAR(20)"),
         # Per-library analysis tracking
         ("analysis_runs", "library_id", "INTEGER REFERENCES plex_libraries(id)"),
+        # Phase 8-12 Premium Features
+        ("job_logs", "vmaf_score", "FLOAT"),
+        ("job_logs", "vmaf_model", "VARCHAR(50)"),
+        ("media_items", "last_viewed_at", "DATETIME"),
+        ("recommendations", "estimated_transcode_time", "FLOAT"),
+        ("recommendations", "estimated_cloud_cost", "FLOAT"),
+        ("recommendations", "roi_score", "FLOAT"),
+        ("recommendations", "dismiss_reason", "VARCHAR(50)"),
     ]
     for table, column, col_type in migrations:
         try:

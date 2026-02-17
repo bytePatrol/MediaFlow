@@ -52,6 +52,15 @@ class BackendService {
         return try await client.get("/api/library/items", queryItems: items)
     }
 
+    func searchMediaItems(query: String, limit: Int = 10) async throws -> PaginatedMediaResponse {
+        let items = [
+            URLQueryItem(name: "search", value: query),
+            URLQueryItem(name: "page", value: "1"),
+            URLQueryItem(name: "page_size", value: "\(limit)"),
+        ]
+        return try await client.get("/api/library/items", queryItems: items)
+    }
+
     func getFilteredItemIds(queryItems: [URLQueryItem]) async throws -> FilteredItemIdsResponse {
         return try await client.get("/api/library/item-ids", queryItems: queryItems)
     }
@@ -78,14 +87,30 @@ class BackendService {
         return try await client.post("/api/transcode/manual", body: request)
     }
 
-    func getTranscodeJobs(status: String? = nil, page: Int = 1) async throws -> PaginatedJobResponse {
+    func getTranscodeJobs(status: String? = nil, mediaItemId: Int? = nil, page: Int = 1) async throws -> PaginatedJobResponse {
         var items: [URLQueryItem] = [URLQueryItem(name: "page", value: "\(page)")]
         if let status = status { items.append(URLQueryItem(name: "status", value: status)) }
+        if let mediaItemId = mediaItemId { items.append(URLQueryItem(name: "media_item_id", value: "\(mediaItemId)")) }
         return try await client.get("/api/transcode/jobs", queryItems: items)
     }
 
     func getQueueStats() async throws -> QueueStats {
         return try await client.get("/api/transcode/queue/stats")
+    }
+
+    // MARK: - Queue Reorder
+    func reorderQueue(jobIds: [Int]) async throws -> ReorderQueueResponse {
+        struct ReorderRequest: Codable { let jobIds: [Int] }
+        return try await client.put("/api/transcode/queue/reorder", body: ReorderRequest(jobIds: jobIds))
+    }
+
+    // MARK: - Queue Strategy
+    func getQueueStrategy() async throws -> QueueStrategyResponse {
+        return try await client.get("/api/transcode/queue/strategy")
+    }
+
+    func setQueueStrategy(_ strategy: String) async throws -> QueueStrategyResponse {
+        return try await client.put("/api/transcode/queue/strategy", body: ["strategy": strategy])
     }
 
     // MARK: - Presets
@@ -416,6 +441,93 @@ class BackendService {
     func toggleWatchFolder(id: Int) async throws -> WatchFolderInfo {
         return try await client.post("/api/watch-folders/\(id)/toggle")
     }
+
+    // MARK: - Automation Rules
+    func getAutomationRules() async throws -> [AutomationRule] {
+        return try await client.get("/api/automation/")
+    }
+
+    func createAutomationRule(request: AutomationRuleCreateRequest) async throws -> AutomationRule {
+        return try await client.post("/api/automation/", body: request)
+    }
+
+    func updateAutomationRule(id: Int, request: AutomationRuleCreateRequest) async throws -> AutomationRule {
+        return try await client.put("/api/automation/\(id)", body: request)
+    }
+
+    func deleteAutomationRule(id: Int) async throws {
+        try await client.delete("/api/automation/\(id)")
+    }
+
+    func toggleAutomationRule(id: Int) async throws -> AutomationRule {
+        return try await client.post("/api/automation/\(id)/toggle")
+    }
+
+    // MARK: - One-Click Optimize
+    func startOptimizeLibrary(request: OptimizeLibraryRequest) async throws -> OptimizeLibraryStatus {
+        return try await client.post("/api/optimize/start", body: request)
+    }
+
+    func getOptimizeStatus(sessionId: String) async throws -> OptimizeLibraryStatus {
+        return try await client.get("/api/optimize/status/\(sessionId)")
+    }
+
+    func cancelOptimize(sessionId: String) async throws {
+        struct Empty: Codable {}
+        let _: [String: AnyCodable]? = try? await client.post("/api/optimize/cancel/\(sessionId)")
+    }
+
+    // MARK: - Premium Analytics
+    func getLibraryHealth() async throws -> LibraryHealthReport {
+        return try await client.get("/api/analytics/library-health")
+    }
+
+    func getCodecMigration(libraryId: Int? = nil) async throws -> CodecMigrationResponse {
+        var items: [URLQueryItem] = []
+        if let libraryId = libraryId { items.append(URLQueryItem(name: "library_id", value: "\(libraryId)")) }
+        return try await client.get("/api/analytics/codec-migration", queryItems: items)
+    }
+
+    func getCostAnalytics() async throws -> CostAnalyticsResponse {
+        return try await client.get("/api/analytics/cost-analytics")
+    }
+
+    func getWorkerHeatmap(days: Int = 30) async throws -> WorkerHeatmapResponse {
+        let items = [URLQueryItem(name: "days", value: "\(days)")]
+        return try await client.get("/api/analytics/worker-heatmap", queryItems: items)
+    }
+
+    func getJobTimeline(days: Int = 7) async throws -> JobTimelineResponse {
+        let items = [URLQueryItem(name: "days", value: "\(days)")]
+        return try await client.get("/api/analytics/job-timeline", queryItems: items)
+    }
+
+    func getCodecStrategy() async throws -> CodecStrategyResponse {
+        return try await client.get("/api/analytics/codec-strategy")
+    }
+
+    func getStorageProjection() async throws -> StorageSavingsProjection {
+        return try await client.get("/api/analytics/storage-projection")
+    }
+
+    func getVMAFStats() async throws -> VMAFStatsResponse {
+        return try await client.get("/api/analytics/vmaf-stats")
+    }
+
+    // MARK: - A/B Comparison
+    func getComparisonThumbnails(jobId: Int) async throws -> ComparisonThumbnailsResponse {
+        return try await client.get("/api/comparison/\(jobId)/thumbnails")
+    }
+
+    func getComparisonMetadata(jobId: Int) async throws -> ComparisonMetadata {
+        return try await client.get("/api/comparison/\(jobId)/metadata")
+    }
+
+    // MARK: - Dismiss with Reason
+    func dismissRecommendationWithReason(id: Int, reason: String?) async throws {
+        let request = DismissWithReasonRequest(reason: reason)
+        let _: [String: AnyCodable]? = try? await client.post("/api/recommendations/\(id)/dismiss-with-reason", body: request)
+    }
 }
 
 struct AppSettingValue: Codable {
@@ -430,6 +542,11 @@ struct BatchQueueResponse: Codable {
 
 struct BulkTagResponse: Codable {
     let status: String
+}
+
+struct ReorderQueueResponse: Codable {
+    let status: String
+    let count: Int
 }
 
 struct SyncResponse: Codable {

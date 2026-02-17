@@ -16,6 +16,7 @@ struct RecommendationsView: View {
         ("Container", "container_modernize"),
         ("HDR", "hdr_to_sdr"),
         ("Batch", "batch_similar"),
+        ("Viewing", "viewing_pattern"),
     ]
 
     var body: some View {
@@ -319,6 +320,7 @@ struct RecommendationsView: View {
         case "container_modernize": return "Container Modernize"
         case "hdr_to_sdr": return "HDR to SDR"
         case "batch_similar": return "Batch Transcode"
+        case "viewing_pattern": return "Viewing Patterns"
         default: return type.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -334,6 +336,7 @@ struct RecommendationsView: View {
         case "container_modernize": return "shippingbox"
         case "hdr_to_sdr": return "sun.max"
         case "batch_similar": return "square.stack.3d.up"
+        case "viewing_pattern": return "eye"
         default: return "lightbulb"
         }
     }

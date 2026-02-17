@@ -22,6 +22,8 @@ class JobLog(Base):
     avg_fps = Column(Float, nullable=True)
     status = Column(String(20), nullable=False)
     compute_cost = Column(Float, nullable=True)
+    vmaf_score = Column(Float, nullable=True)
+    vmaf_model = Column(String(50), nullable=True)  # "vmaf_v0.6.1" etc.
     created_at = Column(DateTime, server_default=func.now())
 
     job = relationship("TranscodeJob", back_populates="job_logs")

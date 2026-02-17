@@ -179,6 +179,32 @@ class TranscodeViewModel: ObservableObject {
         await loadQueueStats()
     }
 
+    /// Subset of jobs that are queued (for drag-and-drop reordering).
+    var queuedJobs: [TranscodeJob] {
+        jobs.filter { $0.status == "queued" }
+    }
+
+    /// Move queued jobs locally and persist the new order to the backend.
+    func moveQueuedJobs(from source: IndexSet, to destination: Int) {
+        // Build a mutable copy of just the queued jobs
+        var queued = queuedJobs
+        queued.move(fromOffsets: source, toOffset: destination)
+
+        // Update priority values locally so the UI reflects the new order immediately
+        let maxPriority = queued.count
+        for (i, movedJob) in queued.enumerated() {
+            if let idx = jobs.firstIndex(where: { $0.id == movedJob.id }) {
+                jobs[idx].priority = maxPriority - i
+            }
+        }
+
+        // Persist to backend
+        let orderedIds = queued.map { $0.id }
+        Task {
+            let _ = try? await service.reorderQueue(jobIds: orderedIds)
+        }
+    }
+
     func loadCloudSettings() async {
         do {
             let settings = try await service.getCloudSettings()

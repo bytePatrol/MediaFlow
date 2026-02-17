@@ -147,6 +147,48 @@ struct AnalyticsDashboardView: View {
                    costSummary.currentMonthTotal > 0 || costSummary.activeInstanceRunningCost > 0 {
                     cloudCostsCard(costSummary)
                 }
+
+                // Premium Analytics Sections
+
+                // Library Health Report
+                if let health = viewModel.libraryHealth {
+                    LibraryHealthView(report: health)
+                }
+
+                // Codec Migration Tracker
+                if let migration = viewModel.codecMigration {
+                    CodecMigrationView(data: migration)
+                }
+
+                // Cost Analytics
+                if let costs = viewModel.costAnalytics {
+                    CostAnalyticsView(data: costs)
+                }
+
+                // Storage Projection
+                if let projection = viewModel.storageProjection {
+                    StorageProjectionView(data: projection)
+                }
+
+                // Worker Heatmap
+                if let heatmap = viewModel.workerHeatmap {
+                    WorkerHeatmapView(data: heatmap)
+                }
+
+                // Job Timeline
+                if let timeline = viewModel.jobTimeline {
+                    JobTimelineView(data: timeline)
+                }
+
+                // Codec Strategy Advisor
+                if let strategy = viewModel.codecStrategy {
+                    CodecStrategyView(data: strategy)
+                }
+
+                // VMAF Quality Validation
+                if let vmaf = viewModel.vmafStats, vmaf.totalScored > 0 {
+                    VMAFDashboardView(stats: vmaf)
+                }
             }
             .padding(24)
         }
@@ -172,7 +214,7 @@ struct AnalyticsDashboardView: View {
                     Text(health.grade)
                         .font(.system(size: 28, weight: .bold))
                         .foregroundColor(gradeColor(health.grade))
-                    Text("\(health.score)")
+                    AnimatedCounter(value: Double(health.score), format: "%.0f")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.mfTextMuted)
                 }
@@ -230,9 +272,25 @@ struct AnalyticsDashboardView: View {
 
     private var trendKPICards: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 400))], spacing: 16) {
-            trendCard(title: "Total Media Size", value: viewModel.overview?.totalMediaSize.formattedFileSize ?? "--", trend: trendFor("items_added"), sparkline: viewModel.sparklines["items_added"])
-            trendCard(title: "Total Savings", value: viewModel.overview?.totalSavingsAchieved.formattedFileSize ?? "--", trend: trendFor("storage_saved"), sparkline: viewModel.sparklines["storage_saved"])
-            trendCard(title: "Completed Jobs", value: "\(viewModel.overview?.completedTranscodes ?? 0)", trend: trendFor("jobs_completed"), sparkline: viewModel.sparklines["jobs_completed"])
+            // Total Media Size - animated file size
+            animatedTrendCard(title: "Total Media Size", trend: trendFor("items_added"), sparkline: viewModel.sparklines["items_added"]) {
+                AnimatedFileSizeCounter(bytes: viewModel.overview?.totalMediaSize ?? 0)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            // Total Savings - animated file size
+            animatedTrendCard(title: "Total Savings", trend: trendFor("storage_saved"), sparkline: viewModel.sparklines["storage_saved"]) {
+                AnimatedFileSizeCounter(bytes: viewModel.overview?.totalSavingsAchieved ?? 0)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            // Completed Jobs - animated counter
+            animatedTrendCard(title: "Completed Jobs", trend: trendFor("jobs_completed"), sparkline: viewModel.sparklines["jobs_completed"]) {
+                AnimatedCounter(value: Double(viewModel.overview?.completedTranscodes ?? 0), format: "%.0f")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            // Workers Online - static (real-time changes, animation would be distracting)
             trendCard(title: "Workers Online", value: "\(viewModel.overview?.workersOnline ?? 0)", trend: nil)
         }
     }
@@ -250,6 +308,46 @@ struct AnalyticsDashboardView: View {
             Text(value)
                 .font(.system(size: 24, weight: .bold))
                 .foregroundColor(.white)
+            if let trend = trend {
+                HStack(spacing: 4) {
+                    Image(systemName: trend.direction == "up" ? "arrow.up.right" : trend.direction == "down" ? "arrow.down.right" : "arrow.right")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("\(String(format: "%.1f", abs(trend.changePct)))%")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundColor(trend.direction == "up" ? .mfSuccess : trend.direction == "down" ? .mfError : .mfTextMuted)
+            }
+            if let points = sparkline, points.count > 1 {
+                Chart(points) { point in
+                    LineMark(
+                        x: .value("Date", point.date),
+                        y: .value("Value", point.value)
+                    )
+                    .foregroundStyle(Color.mfPrimary.opacity(0.6))
+                    AreaMark(
+                        x: .value("Date", point.date),
+                        y: .value("Value", point.value)
+                    )
+                    .foregroundStyle(Color.mfPrimary.opacity(0.1).gradient)
+                }
+                .chartXAxis(.hidden)
+                .chartYAxis(.hidden)
+                .frame(height: 40)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .cardStyle()
+        .hoverCard()
+    }
+
+    private func animatedTrendCard<V: View>(title: String, trend: TrendData?, sparkline: [SparklinePoint]? = nil, @ViewBuilder valueView: () -> V) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.mfTextMuted)
+                .tracking(0.5)
+            valueView()
             if let trend = trend {
                 HStack(spacing: 4) {
                     Image(systemName: trend.direction == "up" ? "arrow.up.right" : trend.direction == "down" ? "arrow.down.right" : "arrow.right")
@@ -301,9 +399,9 @@ struct AnalyticsDashboardView: View {
                 .font(.mfBody)
                 .foregroundColor(.mfTextSecondary)
             HStack(spacing: 24) {
-                forecastItem(label: "30 days", value: Int(pred.predicted30d).formattedFileSize)
-                forecastItem(label: "90 days", value: Int(pred.predicted90d).formattedFileSize)
-                forecastItem(label: "1 year", value: Int(pred.predicted365d).formattedFileSize)
+                animatedForecastItem(label: "30 days", bytes: Int(pred.predicted30d))
+                animatedForecastItem(label: "90 days", bytes: Int(pred.predicted90d))
+                animatedForecastItem(label: "1 year", bytes: Int(pred.predicted365d))
             }
         }
         .padding(20)
@@ -314,6 +412,17 @@ struct AnalyticsDashboardView: View {
     private func forecastItem(label: String, value: String) -> some View {
         VStack(spacing: 4) {
             Text(value)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.mfSuccess)
+            Text(label)
+                .font(.mfCaption)
+                .foregroundColor(.mfTextMuted)
+        }
+    }
+
+    private func animatedForecastItem(label: String, bytes: Int) -> some View {
+        VStack(spacing: 4) {
+            AnimatedFileSizeCounter(bytes: bytes)
                 .font(.system(size: 18, weight: .bold))
                 .foregroundColor(.mfSuccess)
             Text(label)

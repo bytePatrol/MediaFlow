@@ -9,6 +9,7 @@ from app.schemas.recommendation import (
     RecommendationResponse, RecommendationSummary, BatchQueueRequest,
     AnalysisRunResponse, SavingsAchievedResponse,
 )
+from app.schemas.library_health import DismissWithReasonRequest
 from app.services.recommendation_service import RecommendationService
 
 router = APIRouter()
@@ -96,3 +97,45 @@ async def batch_queue_recommendations(
     service = RecommendationService(session)
     result = await service.batch_queue(request)
     return result
+
+
+@router.post("/{rec_id}/dismiss-with-reason")
+async def dismiss_with_reason(rec_id: int, request: DismissWithReasonRequest, session: AsyncSession = Depends(get_session)):
+    """Dismiss a recommendation and track the reason for learning."""
+    from app.models.media_item import MediaItem
+    from app.models.recommendation_feedback import RecommendationFeedback
+
+    result = await session.execute(select(Recommendation).where(Recommendation.id == rec_id))
+    rec = result.scalar_one_or_none()
+    if not rec:
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+    rec.is_dismissed = True
+    rec.dismiss_reason = request.reason
+
+    # Enrich feedback with media item metadata for better preference learning
+    source_codec = None
+    resolution = None
+    if rec.media_item_id:
+        item_result = await session.execute(
+            select(MediaItem.video_codec, MediaItem.resolution_tier)
+            .where(MediaItem.id == rec.media_item_id)
+        )
+        item_row = item_result.first()
+        if item_row:
+            source_codec = item_row[0]
+            resolution = item_row[1]
+
+    # Record feedback for learning
+    feedback = RecommendationFeedback(
+        recommendation_id=rec.id,
+        media_item_id=rec.media_item_id,
+        action="dismissed",
+        dismiss_reason=request.reason,
+        estimated_savings=rec.estimated_savings,
+        source_codec=source_codec,
+        target_codec=None,
+        resolution=resolution,
+    )
+    session.add(feedback)
+    await session.commit()
+    return {"status": "dismissed", "reason": request.reason}

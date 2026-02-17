@@ -9,6 +9,7 @@ struct TranscodeJobCardView: View {
     var phaseLabel: String? = nil
     var onCancel: (() -> Void)? = nil
     @State private var showLog: Bool = false
+    @State private var showComparison: Bool = false
 
     private var sizeChangeColor: Color {
         guard let reduction = job.sizeReductionPercent else { return .mfSuccess }
@@ -110,6 +111,24 @@ struct TranscodeJobCardView: View {
                         Spacer()
 
                         if job.status == "completed" {
+                            Button {
+                                showComparison = true
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "square.split.2x1")
+                                        .font(.system(size: 9, weight: .bold))
+                                    Text("Compare")
+                                        .font(.system(size: 10, weight: .bold))
+                                }
+                                .foregroundColor(.mfPrimary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.mfPrimary.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Visual A/B comparison")
+
                             Text("DONE")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundColor(.mfSuccess)
@@ -389,6 +408,10 @@ struct TranscodeJobCardView: View {
                 )
         )
         .hoverCard()
+        .sheet(isPresented: $showComparison) {
+            ComparisonView(jobId: job.id)
+                .frame(minWidth: 750, minHeight: 550)
+        }
         .contextMenu {
             if let cmd = job.ffmpegCommand {
                 Button {

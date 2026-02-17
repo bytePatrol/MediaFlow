@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
+from sqlalchemy import select
+from typing import Optional, List
 
 from app.database import get_session
 from app.schemas.transcode import (
@@ -8,6 +9,7 @@ from app.schemas.transcode import (
     QueueStatsResponse, DryRunResponse, ProbeRequest, ProbeResponse,
     ManualTranscodeRequest,
 )
+from app.models.transcode_job import TranscodeJob
 from app.services.transcode_service import TranscodeService
 from app.api.websocket import manager
 
@@ -27,12 +29,13 @@ async def create_transcode_jobs(
 @router.get("/jobs")
 async def list_transcode_jobs(
     status: Optional[str] = None,
+    media_item_id: Optional[int] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     session: AsyncSession = Depends(get_session),
 ):
     service = TranscodeService(session)
-    return await service.get_jobs(status=status, page=page, page_size=page_size)
+    return await service.get_jobs(status=status, media_item_id=media_item_id, page=page, page_size=page_size)
 
 
 @router.get("/jobs/{job_id}", response_model=TranscodeJobResponse)
@@ -162,6 +165,75 @@ async def create_manual_transcode_job(
     service = TranscodeService(session)
     job = await service.create_manual_job(request)
     return {"status": "created", "jobs_created": 1, "job_ids": [job.id]}
+
+
+@router.put("/queue/reorder")
+async def reorder_queue(body: dict, session: AsyncSession = Depends(get_session)):
+    """Reorder queued jobs. Body: {"job_ids": [3, 1, 5, 2]} — ordered list of job IDs.
+    First item in the list gets highest priority (processed first)."""
+    job_ids: List[int] = body.get("job_ids", [])
+    if not job_ids:
+        raise HTTPException(400, "job_ids required")
+
+    count = 0
+    # Assign descending priority so first item in list = highest priority.
+    # The worker sorts by priority DESC, so higher values are processed first.
+    max_priority = len(job_ids)
+    for i, job_id in enumerate(job_ids):
+        result = await session.execute(
+            select(TranscodeJob).where(
+                TranscodeJob.id == job_id,
+                TranscodeJob.status == "queued",
+            )
+        )
+        job = result.scalar_one_or_none()
+        if job:
+            job.priority = max_priority - i
+            count += 1
+
+    await session.commit()
+
+    # Broadcast so frontend can refresh
+    await manager.broadcast("queue.reordered", {"job_ids": job_ids})
+
+    return {"status": "reordered", "count": count}
+
+
+@router.get("/queue/strategy")
+async def get_queue_strategy(session: AsyncSession = Depends(get_session)):
+    """Get the current queue priority strategy."""
+    from sqlalchemy import select as sa_select
+    from app.models.app_settings import AppSetting
+    result = await session.execute(
+        sa_select(AppSetting.value).where(AppSetting.key == "queue.priority_strategy")
+    )
+    val = result.scalar()
+    strategy = val if isinstance(val, str) else "default"
+    return {
+        "strategy": strategy,
+        "options": ["default", "biggest_savings", "fastest_first", "most_watched"],
+    }
+
+
+@router.put("/queue/strategy")
+async def set_queue_strategy(body: dict, session: AsyncSession = Depends(get_session)):
+    """Set the queue priority strategy."""
+    from sqlalchemy import select as sa_select
+    from app.models.app_settings import AppSetting
+    strategy = body.get("strategy", "default")
+    valid = ["default", "biggest_savings", "fastest_first", "most_watched"]
+    if strategy not in valid:
+        raise HTTPException(400, f"Invalid strategy. Must be one of: {valid}")
+    result = await session.execute(
+        sa_select(AppSetting).where(AppSetting.key == "queue.priority_strategy")
+    )
+    setting = result.scalar_one_or_none()
+    if setting:
+        setting.value = strategy
+    else:
+        session.add(AppSetting(key="queue.priority_strategy", value=strategy))
+    await session.commit()
+    return {"strategy": strategy}
 
 
 @router.post("/dry-run", response_model=DryRunResponse)

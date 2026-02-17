@@ -6,6 +6,7 @@ struct MediaRowView: View {
     let isSelected: Bool
     @ObservedObject var columnConfig: ColumnConfig
     let onToggle: () -> Void
+    var onItemTap: ((MediaItem) -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 0) {
@@ -19,50 +20,54 @@ struct MediaRowView: View {
             .frame(width: 32)
 
             // Title + Year + Duration (+ file size when column hidden)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                HStack(spacing: 4) {
-                    if let year = item.year {
-                        Text("\(year)")
-                    }
-                    Text("•")
-                    Text(item.formattedDuration)
-                    if !columnConfig.isVisible(.fileSize), let size = item.fileSize {
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        if let year = item.year {
+                            Text("\(year)")
+                        }
                         Text("•")
-                        Text(size.formattedFileSize)
-                    }
+                        Text(item.formattedDuration)
+                        if !columnConfig.isVisible(.fileSize), let size = item.fileSize {
+                            Text("•")
+                            Text(size.formattedFileSize)
+                        }
 
-                    if let tags = item.tags, !tags.isEmpty {
-                        Text("•")
-                        ForEach(tags) { tag in
-                            Text(tag.name)
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(Color(hex: tag.color).opacity(0.7))
-                                .clipShape(Capsule())
+                        if let tags = item.tags, !tags.isEmpty {
+                            Text("•")
+                            ForEach(tags) { tag in
+                                Text(tag.name)
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(Color(hex: tag.color).opacity(0.7))
+                                    .clipShape(Capsule())
+                            }
                         }
                     }
+                    .font(.system(size: 11))
+                    .foregroundColor(.mfTextMuted)
                 }
-                .font(.system(size: 11))
-                .foregroundColor(.mfTextMuted)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 4)
 
-            // Dynamic columns (12pt spacer matches header divider handle width)
-            ForEach(columnConfig.visibleColumns) { column in
-                Spacer().frame(width: 12)
-                columnCell(for: column)
-                    .frame(width: columnConfig.width(for: column) - 12, alignment: .leading)
-            }
+                // Dynamic columns (12pt spacer matches header divider handle width)
+                ForEach(columnConfig.visibleColumns) { column in
+                    Spacer().frame(width: 12)
+                    columnCell(for: column)
+                        .frame(width: columnConfig.width(for: column) - 12, alignment: .leading)
+                }
 
-            // Spacer for the gear icon column
-            Spacer().frame(width: 24)
+                // Spacer for the gear icon column
+                Spacer().frame(width: 24)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { onItemTap?(item) }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)

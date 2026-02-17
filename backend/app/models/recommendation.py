@@ -34,6 +34,10 @@ class Recommendation(Base):
     priority_score = Column(Float, nullable=True)
     confidence = Column(Float, nullable=True)
     analysis_run_id = Column(Integer, ForeignKey("analysis_runs.id", ondelete="SET NULL"), nullable=True)
+    estimated_transcode_time = Column(Float, nullable=True)  # seconds
+    estimated_cloud_cost = Column(Float, nullable=True)  # USD
+    roi_score = Column(Float, nullable=True)  # savings_gb / cost or time metric
+    dismiss_reason = Column(String(50), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     media_item = relationship("MediaItem", back_populates="recommendations")

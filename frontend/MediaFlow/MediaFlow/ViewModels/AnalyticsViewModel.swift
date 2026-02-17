@@ -17,6 +17,14 @@ class AnalyticsViewModel: ObservableObject {
     @Published var cloudCosts: CloudCostSummary?
     @Published var sparklines: [String: [SparklinePoint]] = [:]
     @Published var storageTimeline: [StorageTimelinePoint] = []
+    @Published var libraryHealth: LibraryHealthReport?
+    @Published var codecMigration: CodecMigrationResponse?
+    @Published var costAnalytics: CostAnalyticsResponse?
+    @Published var workerHeatmap: WorkerHeatmapResponse?
+    @Published var jobTimeline: JobTimelineResponse?
+    @Published var codecStrategy: CodecStrategyResponse?
+    @Published var storageProjection: StorageSavingsProjection?
+    @Published var vmafStats: VMAFStatsResponse?
     @Published var isLoading: Bool = false
     @Published var isExportingPDF: Bool = false
     @Published var errorMessage: String?
@@ -75,6 +83,9 @@ class AnalyticsViewModel: ObservableObject {
         await loadSparklines()
         await loadStorageTimeline()
 
+        // Premium analytics (non-blocking)
+        await loadPremiumAnalytics()
+
         isLoading = false
     }
 
@@ -109,6 +120,26 @@ class AnalyticsViewModel: ObservableObject {
             let points = try await service.getStorageTimeline(days: selectedTimeRange)
             storageTimeline = points
         } catch {}
+    }
+
+    func loadPremiumAnalytics() async {
+        async let healthTask = service.getLibraryHealth()
+        async let migrationTask = service.getCodecMigration()
+        async let costTask = service.getCostAnalytics()
+        async let strategyTask = service.getCodecStrategy()
+        async let projectionTask = service.getStorageProjection()
+        async let vmafTask = service.getVMAFStats()
+
+        do { libraryHealth = try await healthTask } catch {}
+        do { codecMigration = try await migrationTask } catch {}
+        do { costAnalytics = try await costTask } catch {}
+        do { codecStrategy = try await strategyTask } catch {}
+        do { storageProjection = try await projectionTask } catch {}
+        do { vmafStats = try await vmafTask } catch {}
+
+        // These are heavier - load separately
+        do { workerHeatmap = try await service.getWorkerHeatmap(days: selectedTimeRange) } catch {}
+        do { jobTimeline = try await service.getJobTimeline(days: 7) } catch {}
     }
 
     func exportPDF() {

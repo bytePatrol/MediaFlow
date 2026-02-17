@@ -13,6 +13,7 @@ struct LibraryDashboardView: View {
     @State private var filterPresets: [FilterPresetInfo] = []
     @State private var showSavePreset = false
     @State private var presetName: String = ""
+    @State private var selectedDetailItem: MediaItem? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,12 +43,35 @@ struct LibraryDashboardView: View {
                 // Table / Grid
                 Group {
                     if viewModel.viewMode == .list {
-                        MediaTableView(viewModel: viewModel)
+                        MediaTableView(viewModel: viewModel, onItemTap: { item in
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                selectedDetailItem = item
+                            }
+                        })
                     } else {
-                        MediaGridView(viewModel: viewModel)
+                        MediaGridView(viewModel: viewModel, onItemTap: { item in
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                selectedDetailItem = item
+                            }
+                        })
                     }
                 }
                 .frame(maxWidth: .infinity)
+
+                // Detail Panel
+                if let detailItem = selectedDetailItem {
+                    Divider().background(Color.mfGlassBorder)
+
+                    MediaItemDetailView(
+                        item: detailItem,
+                        onDismiss: {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                selectedDetailItem = nil
+                            }
+                        }
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
         }
         .background(Color.mfBackground)

@@ -26,6 +26,8 @@ struct ContentView: View {
                         AnalyticsDashboardView()
                     case .intelligence:
                         RecommendationsView()
+                    case .automation:
+                        AutomationRulesView()
                     case .settings:
                         SettingsView()
                     case .logs:

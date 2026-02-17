@@ -1,6 +1,7 @@
+import asyncio
 import logging
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -182,10 +183,23 @@ class RecommendationService:
         all_recs.extend(await self._analyze_container_modernize(thresholds))
         all_recs.extend(await self._analyze_hdr_to_sdr(thresholds, learned_ratios))
         all_recs.extend(await self._analyze_batch_similar(thresholds, learned_ratios))
+        all_recs.extend(await self._analyze_viewing_patterns(thresholds))
 
-        # Score and attach to run
+        # Apply learned user preferences to suppress unwanted recommendations
+        prefs = await self._load_user_preferences()
+        all_recs = await self._apply_preference_filter(all_recs, prefs)
+
+        # Compute cost-benefit and attach to run
         for rec in all_recs:
             rec.analysis_run_id = run.id
+            # Enrich with cost-benefit data
+            item = None
+            if rec.media_item_id:
+                item_result = await self.session.execute(
+                    select(MediaItem).where(MediaItem.id == rec.media_item_id)
+                )
+                item = item_result.scalar_one_or_none()
+            await self._compute_cost_benefit(rec, item)
             self.session.add(rec)
 
         await self.session.flush()
@@ -215,6 +229,17 @@ class RecommendationService:
                 "recommendations_generated": len(all_recs),
                 "total_estimated_savings": total_savings,
             })
+        except Exception:
+            pass
+
+        try:
+            from app.services.automation_engine import AutomationEngine
+            asyncio.create_task(AutomationEngine.fire_event("analysis_complete", {
+                "run_id": run.id,
+                "recommendations_generated": len(all_recs),
+                "total_estimated_savings": total_savings,
+                "library_id": None,
+            }))
         except Exception:
             pass
 
@@ -270,10 +295,23 @@ class RecommendationService:
         all_recs.extend(await self._analyze_container_modernize(thresholds, library_id=library_id))
         all_recs.extend(await self._analyze_hdr_to_sdr(thresholds, learned_ratios, library_id=library_id))
         all_recs.extend(await self._analyze_batch_similar(thresholds, learned_ratios, library_id=library_id))
+        all_recs.extend(await self._analyze_viewing_patterns(thresholds, library_id=library_id))
 
-        # Score and attach to run
+        # Apply learned user preferences to suppress unwanted recommendations
+        prefs = await self._load_user_preferences()
+        all_recs = await self._apply_preference_filter(all_recs, prefs)
+
+        # Compute cost-benefit and attach to run
         for rec in all_recs:
             rec.analysis_run_id = run.id
+            # Enrich with cost-benefit data
+            item = None
+            if rec.media_item_id:
+                item_result = await self.session.execute(
+                    select(MediaItem).where(MediaItem.id == rec.media_item_id)
+                )
+                item = item_result.scalar_one_or_none()
+            await self._compute_cost_benefit(rec, item)
             self.session.add(rec)
 
         await self.session.flush()
@@ -305,6 +343,17 @@ class RecommendationService:
                 "recommendations_generated": len(all_recs),
                 "total_estimated_savings": total_savings,
             })
+        except Exception:
+            pass
+
+        try:
+            from app.services.automation_engine import AutomationEngine
+            asyncio.create_task(AutomationEngine.fire_event("analysis_complete", {
+                "run_id": run.id,
+                "recommendations_generated": len(all_recs),
+                "total_estimated_savings": total_savings,
+                "library_id": library_id,
+            }))
         except Exception:
             pass
 
@@ -426,6 +475,181 @@ class RecommendationService:
                     thresholds[short] = default
         return thresholds
 
+    # ── Learn from Dismissal History ──────────────────────────────────
+
+    async def _load_user_preferences(self) -> Dict[str, Any]:
+        """Learn user preferences from dismiss history to suppress unwanted recommendations."""
+        from app.models.recommendation_feedback import RecommendationFeedback
+
+        prefs: Dict[str, Any] = {
+            "suppress_resolutions": set(),  # e.g., {"4K"} if user always dismisses 4K recs
+            "suppress_codecs": set(),       # e.g., {"all"} if user doesn't want codec change recs
+            "suppress_types": set(),        # e.g., {"hdr_to_sdr"} if always dismissed
+            "min_savings_gb": 0.0,          # learned minimum savings threshold
+            "calibration_factor": 1.0,      # actual/estimated savings ratio
+        }
+
+        # 1. Count dismissals by reason
+        reason_result = await self.session.execute(
+            select(RecommendationFeedback.dismiss_reason, func.count())
+            .where(
+                RecommendationFeedback.action == "dismissed",
+                RecommendationFeedback.dismiss_reason.isnot(None),
+            )
+            .group_by(RecommendationFeedback.dismiss_reason)
+        )
+        reason_counts = {r: c for r, c in reason_result.all()}
+
+        # Apply structured reason patterns (need at least 3 dismissals to learn)
+        if reason_counts.get("keep_4k", 0) >= 3:
+            prefs["suppress_resolutions"].add("4K")
+
+        if reason_counts.get("keep_codec", 0) >= 3:
+            prefs["suppress_codecs"].add("all")
+
+        # 2. Check if specific rec types are consistently dismissed (>70% dismiss rate with 5+ total)
+        type_stats_result = await self.session.execute(
+            select(
+                Recommendation.type,
+                func.count().filter(Recommendation.is_dismissed == True),  # noqa: E712
+                func.count(),
+            ).group_by(Recommendation.type)
+        )
+        for rec_type, dismissed_count, total_count in type_stats_result.all():
+            if total_count >= 5 and dismissed_count / total_count > 0.7:
+                prefs["suppress_types"].add(rec_type)
+
+        # 3. Learn minimum savings threshold from dismissed recs with small savings
+        #    If user frequently dismisses recs, use the average dismissed savings as a floor
+        small_dismiss_result = await self.session.execute(
+            select(func.avg(RecommendationFeedback.estimated_savings))
+            .where(
+                RecommendationFeedback.action == "dismissed",
+                RecommendationFeedback.estimated_savings.isnot(None),
+                RecommendationFeedback.estimated_savings > 0,
+            )
+        )
+        avg_dismissed_savings = small_dismiss_result.scalar()
+
+        total_dismissals_result = await self.session.execute(
+            select(func.count()).select_from(RecommendationFeedback)
+            .where(
+                RecommendationFeedback.action == "dismissed",
+                RecommendationFeedback.estimated_savings.isnot(None),
+                RecommendationFeedback.estimated_savings > 0,
+            )
+        )
+        total_dismiss_count = total_dismissals_result.scalar() or 0
+
+        if total_dismiss_count >= 5 and avg_dismissed_savings is not None:
+            # Set floor to 50% of the average dismissed savings (conservative)
+            prefs["min_savings_gb"] = (avg_dismissed_savings * 0.5) / 1_000_000_000
+
+        # 4. Learn calibration factor from actual vs estimated savings
+        calibration_result = await self.session.execute(
+            select(
+                func.avg(RecommendationFeedback.actual_savings),
+                func.avg(RecommendationFeedback.estimated_savings),
+            ).where(
+                RecommendationFeedback.actual_savings.isnot(None),
+                RecommendationFeedback.estimated_savings.isnot(None),
+                RecommendationFeedback.estimated_savings > 0,
+            )
+        )
+        cal_row = calibration_result.first()
+        if cal_row and cal_row[0] is not None and cal_row[1] is not None and cal_row[1] > 0:
+            prefs["calibration_factor"] = cal_row[0] / cal_row[1]
+
+        # 5. Count dismissals by resolution from feedback records
+        res_dismiss_result = await self.session.execute(
+            select(RecommendationFeedback.resolution, func.count())
+            .where(
+                RecommendationFeedback.action == "dismissed",
+                RecommendationFeedback.resolution.isnot(None),
+            )
+            .group_by(RecommendationFeedback.resolution)
+        )
+        for resolution, count in res_dismiss_result.all():
+            if count >= 3:
+                prefs["suppress_resolutions"].add(resolution)
+
+        logger.info(
+            "Loaded user preferences from %d dismissals: suppress_types=%s, "
+            "suppress_resolutions=%s, suppress_codecs=%s, min_savings_gb=%.2f, "
+            "calibration_factor=%.3f",
+            total_dismiss_count,
+            prefs["suppress_types"],
+            prefs["suppress_resolutions"],
+            prefs["suppress_codecs"],
+            prefs["min_savings_gb"],
+            prefs["calibration_factor"],
+        )
+        return prefs
+
+    async def _apply_preference_filter(
+        self, all_recs: List[Recommendation], prefs: Dict[str, Any]
+    ) -> List[Recommendation]:
+        """Filter out recommendations suppressed by learned user preferences."""
+        suppress_types = prefs.get("suppress_types", set())
+        suppress_resolutions = prefs.get("suppress_resolutions", set())
+        suppress_codecs = prefs.get("suppress_codecs", set())
+        min_savings = prefs.get("min_savings_gb", 0) * 1_000_000_000
+        calibration = prefs.get("calibration_factor", 1.0)
+
+        # If nothing learned, skip filtering entirely
+        if (
+            not suppress_types
+            and not suppress_resolutions
+            and not suppress_codecs
+            and min_savings <= 0
+            and calibration == 1.0
+        ):
+            return all_recs
+
+        filtered: List[Recommendation] = []
+        suppressed_count = 0
+
+        for rec in all_recs:
+            # Check type suppression
+            if rec.type in suppress_types:
+                suppressed_count += 1
+                continue
+
+            # Check resolution suppression (need to look up media item)
+            if suppress_resolutions and rec.media_item_id:
+                item_result = await self.session.execute(
+                    select(MediaItem.resolution_tier).where(MediaItem.id == rec.media_item_id)
+                )
+                res = item_result.scalar()
+                if res in suppress_resolutions:
+                    suppressed_count += 1
+                    continue
+
+            # Check codec suppression (suppress all codec change recommendations)
+            if "all" in suppress_codecs and rec.type in ("codec_upgrade", "storage_optimization"):
+                suppressed_count += 1
+                continue
+
+            # Apply calibration factor to savings estimates
+            if calibration != 1.0 and rec.estimated_savings:
+                rec.estimated_savings = int(rec.estimated_savings * calibration)
+
+            # Check minimum savings threshold (after calibration)
+            if min_savings > 0 and (rec.estimated_savings or 0) < min_savings:
+                suppressed_count += 1
+                continue
+
+            filtered.append(rec)
+
+        if suppressed_count > 0:
+            logger.info(
+                "Preference filter suppressed %d/%d recommendations",
+                suppressed_count,
+                len(all_recs),
+            )
+
+        return filtered
+
     # ── Learn from Transcode Results ────────────────────────────────────
 
     async def _get_learned_ratios(self) -> Dict[Tuple[str, str], float]:
@@ -486,6 +710,61 @@ class RecommendationService:
         # Fallback: assume 40% savings
         savings = int(file_size * 0.40)
         return (max(savings, 0), 0.2)
+
+    async def _compute_cost_benefit(self, rec: Recommendation, item: Optional[MediaItem]):
+        """Compute cost-benefit metrics for a recommendation."""
+        if not item or not rec.estimated_savings:
+            return
+
+        duration_ms = item.duration_ms or 0
+        duration_hours = duration_ms / 3_600_000
+
+        # Estimate transcode time from historical FPS
+        source_codec = (item.video_codec or "").lower()
+        target_codec = "hevc"  # Default target
+
+        fps_result = await self.session.execute(
+            select(func.avg(JobLog.avg_fps), func.count())
+            .where(
+                JobLog.status == "completed",
+                JobLog.source_codec.ilike(f"%{source_codec}%"),
+                JobLog.avg_fps.isnot(None),
+                JobLog.avg_fps > 0,
+            )
+        )
+        fps_row = fps_result.first()
+        avg_fps = fps_row[0] if fps_row and fps_row[0] else None
+        sample_count = fps_row[1] if fps_row else 0
+
+        if avg_fps and avg_fps > 0 and item.frame_rate and item.frame_rate > 0:
+            total_frames = (duration_ms / 1000) * item.frame_rate
+            estimated_seconds = total_frames / avg_fps
+        elif duration_hours > 0:
+            # Fallback: assume 30 FPS encode speed
+            estimated_seconds = (duration_ms / 1000) * (item.frame_rate or 24) / 30
+        else:
+            estimated_seconds = None
+
+        rec.estimated_transcode_time = estimated_seconds
+
+        # Estimate cloud cost
+        if estimated_seconds:
+            # Get cheapest cloud worker hourly rate
+            from app.models.worker_server import WorkerServer
+            cost_result = await self.session.execute(
+                select(func.min(WorkerServer.hourly_cost))
+                .where(WorkerServer.hourly_cost.isnot(None), WorkerServer.hourly_cost > 0)
+            )
+            min_hourly = cost_result.scalar()
+            if min_hourly:
+                rec.estimated_cloud_cost = round((estimated_seconds / 3600) * min_hourly, 4)
+
+        # Compute ROI score: savings in GB per dollar (or per hour if no cost)
+        savings_gb = (rec.estimated_savings or 0) / 1_000_000_000
+        if rec.estimated_cloud_cost and rec.estimated_cloud_cost > 0:
+            rec.roi_score = round(savings_gb / rec.estimated_cloud_cost, 2)
+        elif estimated_seconds and estimated_seconds > 0:
+            rec.roi_score = round(savings_gb / (estimated_seconds / 3600), 2)
 
     # ── Priority Scoring ────────────────────────────────────────────────
 
@@ -852,6 +1131,95 @@ class RecommendationService:
                 )),
             )
             recs.append(rec)
+        return recs
+
+    async def _analyze_viewing_patterns(self, thresholds: Dict,
+                                          library_id: Optional[int] = None) -> List[Recommendation]:
+        """Analyze viewing patterns to recommend compression or quality upgrades."""
+        recs = []
+        now = datetime.utcnow()
+        two_years_ago = now - timedelta(days=730)
+
+        # 1. Never-watched items (play_count == 0 AND last_viewed_at is None) > 5 GB
+        never_query = select(MediaItem).where(
+            MediaItem.play_count == 0,
+            MediaItem.last_viewed_at.is_(None),
+            MediaItem.file_size > 5_000_000_000,
+        )
+        if library_id is not None:
+            never_query = never_query.where(MediaItem.plex_library_id == library_id)
+        result = await self.session.execute(never_query)
+        never_watched = result.scalars().all()
+
+        for item in never_watched:
+            rec = Recommendation(
+                media_item_id=item.id,
+                type="viewing_pattern",
+                severity="info",
+                title=f"{item.title} - Never watched",
+                description=(
+                    "This file has never been viewed. Consider aggressive compression to save storage."
+                ),
+                estimated_savings=int((item.file_size or 0) * 0.50),
+                confidence=0.7,
+            )
+            rec.priority_score = self._score_recommendation(rec, item)
+            recs.append(rec)
+
+        # 2. Heavily-watched items (play_count >= 10) with old codecs
+        heavy_query = select(MediaItem).where(
+            MediaItem.play_count >= 10,
+            MediaItem.video_codec.in_(list(UPGRADE_CODECS)),
+        )
+        if library_id is not None:
+            heavy_query = heavy_query.where(MediaItem.plex_library_id == library_id)
+        result = await self.session.execute(heavy_query)
+        heavily_watched = result.scalars().all()
+
+        for item in heavily_watched:
+            rec = Recommendation(
+                media_item_id=item.id,
+                type="viewing_pattern",
+                severity="info",
+                title=f"{item.title} - Frequently watched ({item.play_count} plays)",
+                description=(
+                    "This popular title deserves optimal quality. Consider upgrading to best available codec."
+                ),
+                estimated_savings=0,
+                confidence=0.8,
+            )
+            rec.priority_score = self._score_recommendation(rec, item)
+            recs.append(rec)
+
+        # 3. Not watched in 2+ years, > 3 GB
+        stale_query = select(MediaItem).where(
+            MediaItem.last_viewed_at.isnot(None),
+            MediaItem.last_viewed_at < two_years_ago,
+            MediaItem.file_size > 3_000_000_000,
+        )
+        if library_id is not None:
+            stale_query = stale_query.where(MediaItem.plex_library_id == library_id)
+        result = await self.session.execute(stale_query)
+        stale_items = result.scalars().all()
+
+        for item in stale_items:
+            years_since = (now - item.last_viewed_at).days // 365
+            last_date = item.last_viewed_at.strftime("%b %d, %Y")
+            rec = Recommendation(
+                media_item_id=item.id,
+                type="viewing_pattern",
+                severity="info",
+                title=f"{item.title} - Not watched in {years_since} years",
+                description=(
+                    f"This title hasn't been viewed since {last_date}. "
+                    f"Consider aggressive compression or archival codec."
+                ),
+                estimated_savings=int((item.file_size or 0) * 0.45),
+                confidence=0.6,
+            )
+            rec.priority_score = self._score_recommendation(rec, item)
+            recs.append(rec)
+
         return recs
 
     # ── Batch Queue ─────────────────────────────────────────────────────

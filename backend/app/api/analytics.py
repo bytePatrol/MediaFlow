@@ -123,3 +123,61 @@ async def get_storage_timeline(
 async def get_top_opportunities(session: AsyncSession = Depends(get_session)):
     service = AnalyticsService(session)
     return await service.get_top_opportunities()
+
+
+@router.get("/library-health")
+async def get_library_health(session: AsyncSession = Depends(get_session)):
+    service = AnalyticsService(session)
+    return await service.get_library_health()
+
+
+@router.get("/codec-migration")
+async def get_codec_migration(
+    library_id: Optional[int] = None,
+    session: AsyncSession = Depends(get_session),
+):
+    service = AnalyticsService(session)
+    return await service.get_codec_migration(library_id=library_id)
+
+
+@router.get("/cost-analytics")
+async def get_cost_analytics(session: AsyncSession = Depends(get_session)):
+    service = AnalyticsService(session)
+    return await service.get_cost_analytics()
+
+
+@router.get("/worker-heatmap")
+async def get_worker_heatmap(
+    days: int = Query(30, ge=7, le=365),
+    session: AsyncSession = Depends(get_session),
+):
+    service = AnalyticsService(session)
+    return await service.get_worker_heatmap(days=days)
+
+
+@router.get("/job-timeline")
+async def get_job_timeline(
+    days: int = Query(7, ge=1, le=90),
+    session: AsyncSession = Depends(get_session),
+):
+    service = AnalyticsService(session)
+    return await service.get_job_timeline(days=days)
+
+
+@router.get("/codec-strategy")
+async def get_codec_strategy(session: AsyncSession = Depends(get_session)):
+    service = AnalyticsService(session)
+    return await service.get_codec_strategy()
+
+
+@router.get("/storage-projection")
+async def get_storage_projection(session: AsyncSession = Depends(get_session)):
+    service = AnalyticsService(session)
+    return await service.get_storage_projection()
+
+
+@router.get("/vmaf-stats")
+async def get_vmaf_stats(session: AsyncSession = Depends(get_session)):
+    from app.services.vmaf_service import VMAFService
+    service = VMAFService(session)
+    return await service.get_quality_stats()

@@ -544,3 +544,548 @@ class AnalyticsService:
                 recommended_codec="hevc",
             ))
         return opportunities
+
+    async def get_library_health(self):
+        """Per-library health report with scores and grades."""
+        from app.models.plex_library import PlexLibrary
+        from app.models.recommendation import Recommendation
+
+        result = await self.session.execute(
+            select(PlexLibrary).order_by(PlexLibrary.title)
+        )
+        libraries = result.scalars().all()
+
+        cards = []
+        total_potential = 0
+        total_score = 0
+
+        for lib in libraries:
+            items_result = await self.session.execute(
+                select(
+                    func.count(),
+                    func.sum(MediaItem.file_size),
+                    func.avg(MediaItem.video_bitrate),
+                ).where(MediaItem.plex_library_id == lib.id)
+            )
+            row = items_result.first()
+            total_items = row[0] or 0
+            total_size = row[1] or 0
+            avg_bitrate = row[2] or 0
+
+            if total_items == 0:
+                continue
+
+            # Codec distribution
+            codec_result = await self.session.execute(
+                select(MediaItem.video_codec, func.count())
+                .where(MediaItem.plex_library_id == lib.id, MediaItem.video_codec.isnot(None))
+                .group_by(MediaItem.video_codec)
+            )
+            codec_dist = {c: n for c, n in codec_result.all()}
+
+            # Resolution distribution
+            res_result = await self.session.execute(
+                select(MediaItem.resolution_tier, func.count())
+                .where(MediaItem.plex_library_id == lib.id, MediaItem.resolution_tier.isnot(None))
+                .group_by(MediaItem.resolution_tier)
+            )
+            res_dist = {r: n for r, n in res_result.all()}
+
+            # HDR count
+            hdr_result = await self.session.execute(
+                select(func.count()).select_from(MediaItem)
+                .where(MediaItem.plex_library_id == lib.id, MediaItem.is_hdr == True)
+            )
+            hdr_count = hdr_result.scalar() or 0
+
+            # Modern codec percentage
+            modern_codecs = {"hevc", "h265", "av1"}
+            modern_count = sum(v for k, v in codec_dist.items() if k and k.lower() in modern_codecs)
+            optimization_pct = (modern_count / total_items * 100) if total_items > 0 else 0
+
+            # Potential savings from recommendations
+            savings_result = await self.session.execute(
+                select(func.sum(Recommendation.estimated_savings))
+                .join(MediaItem, Recommendation.media_item_id == MediaItem.id)
+                .where(
+                    MediaItem.plex_library_id == lib.id,
+                    Recommendation.is_dismissed == False,
+                    Recommendation.is_actioned == False,
+                )
+            )
+            potential_savings = savings_result.scalar() or 0
+            total_potential += potential_savings
+
+            # Health score calculation
+            score = 0
+            score += min(40, int(optimization_pct * 0.4))  # Up to 40 for modern codecs
+
+            # Container score (modern = mkv, mp4)
+            container_result = await self.session.execute(
+                select(func.count()).select_from(MediaItem)
+                .where(
+                    MediaItem.plex_library_id == lib.id,
+                    MediaItem.container.in_(["mkv", "mp4", "m4v"]),
+                )
+            )
+            modern_containers = container_result.scalar() or 0
+            container_pct = (modern_containers / total_items * 100) if total_items > 0 else 0
+            score += min(20, int(container_pct * 0.2))  # Up to 20
+
+            # Bitrate efficiency score
+            score += min(20, 20 if avg_bitrate > 0 else 0)  # 20 if we have bitrate data
+
+            # No duplicates bonus
+            score += 10  # Simplified
+
+            # Low quality penalty
+            low_q_result = await self.session.execute(
+                select(func.count()).select_from(Recommendation)
+                .join(MediaItem, Recommendation.media_item_id == MediaItem.id)
+                .where(
+                    MediaItem.plex_library_id == lib.id,
+                    Recommendation.type == "low_quality",
+                )
+            )
+            low_quality = low_q_result.scalar() or 0
+            if low_quality > total_items * 0.1:
+                score -= 10
+
+            score = max(0, min(100, score))
+            total_score += score
+
+            grade = "A" if score >= 90 else "B" if score >= 75 else "C" if score >= 60 else "D" if score >= 40 else "F"
+
+            cards.append({
+                "library_id": lib.id,
+                "library_title": lib.title,
+                "total_items": total_items,
+                "total_size": total_size,
+                "codec_distribution": codec_dist,
+                "resolution_distribution": res_dist,
+                "optimization_pct": round(optimization_pct, 1),
+                "health_score": score,
+                "health_grade": grade,
+                "potential_savings": potential_savings,
+                "avg_bitrate": round(avg_bitrate, 0),
+                "hdr_count": hdr_count,
+            })
+
+        overall_score = int(total_score / len(cards)) if cards else 0
+        overall_grade = "A" if overall_score >= 90 else "B" if overall_score >= 75 else "C" if overall_score >= 60 else "D" if overall_score >= 40 else "F"
+
+        return {
+            "libraries": cards,
+            "overall_score": overall_score,
+            "overall_grade": overall_grade,
+            "total_potential_savings": total_potential,
+        }
+
+    async def get_codec_migration(self, library_id=None):
+        """Codec migration progress with historical snapshots."""
+        from app.models.codec_migration_snapshot import CodecMigrationSnapshot
+
+        # Current distribution
+        query = select(MediaItem.video_codec, func.count())
+        if library_id:
+            query = query.where(MediaItem.plex_library_id == library_id)
+        query = query.where(MediaItem.video_codec.isnot(None)).group_by(MediaItem.video_codec)
+        result = await self.session.execute(query)
+        current = {c: n for c, n in result.all()}
+
+        total = sum(current.values())
+        current_pct = {c: round(n / total * 100, 1) if total > 0 else 0 for c, n in current.items()}
+
+        modern_codecs = {"hevc", "h265", "av1"}
+        modern_count = sum(v for k, v in current.items() if k and k.lower() in modern_codecs)
+        modern_pct = round(modern_count / total * 100, 1) if total > 0 else 0
+
+        # Save snapshot
+        import json
+        snapshot = CodecMigrationSnapshot(
+            library_id=library_id,
+            codec_distribution_json=json.dumps(current),
+            total_items=total,
+            modern_codec_pct=modern_pct,
+        )
+        self.session.add(snapshot)
+        await self.session.commit()
+
+        # Historical data
+        hist_query = (
+            select(CodecMigrationSnapshot)
+            .order_by(CodecMigrationSnapshot.snapshot_date.desc())
+            .limit(90)
+        )
+        if library_id:
+            hist_query = hist_query.where(CodecMigrationSnapshot.library_id == library_id)
+        else:
+            hist_query = hist_query.where(CodecMigrationSnapshot.library_id.is_(None))
+
+        hist_result = await self.session.execute(hist_query)
+        snapshots = hist_result.scalars().all()
+
+        history = []
+        for s in reversed(snapshots):
+            try:
+                dist = json.loads(s.codec_distribution_json) if s.codec_distribution_json else {}
+            except Exception:
+                dist = {}
+            history.append({
+                "date": s.snapshot_date.isoformat() if s.snapshot_date else "",
+                "codec_distribution": dist,
+                "total_items": s.total_items,
+                "modern_codec_pct": s.modern_codec_pct,
+            })
+
+        return {
+            "current": current,
+            "current_pct": current_pct,
+            "history": history,
+            "total_items": total,
+            "modern_pct": modern_pct,
+            "library_id": library_id,
+        }
+
+    async def get_cost_analytics(self):
+        """Cloud cost analytics with trends and projections."""
+        from app.models.cloud_cost import CloudCostRecord
+        from datetime import datetime, timedelta
+
+        # Total cloud costs
+        cost_result = await self.session.execute(
+            select(
+                func.count(),
+                func.sum(CloudCostRecord.cost_usd),
+            ).where(CloudCostRecord.record_type == "job")
+        )
+        row = cost_result.first()
+        total_jobs_cloud = row[0] or 0
+        total_cloud_cost = row[1] or 0
+
+        # Total savings from cloud jobs
+        cloud_savings_result = await self.session.execute(
+            select(func.sum(JobLog.source_size - JobLog.target_size))
+            .where(
+                JobLog.status == "completed",
+                JobLog.compute_cost.isnot(None),
+                JobLog.compute_cost > 0,
+                JobLog.target_size.isnot(None),
+            )
+        )
+        cloud_savings = cloud_savings_result.scalar() or 0
+        cloud_savings_gb = cloud_savings / 1_000_000_000 if cloud_savings > 0 else 0
+        cost_per_gb = total_cloud_cost / cloud_savings_gb if cloud_savings_gb > 0 else 0
+
+        # Local savings
+        local_savings_result = await self.session.execute(
+            select(func.sum(JobLog.source_size - JobLog.target_size))
+            .where(
+                JobLog.status == "completed",
+                JobLog.target_size.isnot(None),
+                (JobLog.compute_cost.is_(None)) | (JobLog.compute_cost == 0),
+            )
+        )
+        local_savings = local_savings_result.scalar() or 0
+
+        # Estimate local cost (assume $0.10/hr for electricity)
+        local_time_result = await self.session.execute(
+            select(func.sum(JobLog.duration_seconds))
+            .where(
+                JobLog.status == "completed",
+                (JobLog.compute_cost.is_(None)) | (JobLog.compute_cost == 0),
+            )
+        )
+        local_time = local_time_result.scalar() or 0
+        local_estimated_cost = (local_time / 3600) * 0.10
+
+        # Monthly trend
+        monthly_trend = []
+        for i in range(5, -1, -1):
+            month_start = datetime.utcnow().replace(day=1) - timedelta(days=i * 30)
+            month_end = month_start + timedelta(days=30)
+            month_result = await self.session.execute(
+                select(func.count(), func.sum(CloudCostRecord.cost_usd))
+                .where(
+                    CloudCostRecord.record_type == "job",
+                    CloudCostRecord.start_time >= month_start,
+                    CloudCostRecord.start_time < month_end,
+                )
+            )
+            mrow = month_result.first()
+            monthly_trend.append({
+                "month": month_start.strftime("%Y-%m"),
+                "cost": round(mrow[1] or 0, 2),
+                "jobs": mrow[0] or 0,
+            })
+
+        # Projection based on last 3 months average
+        recent_costs = [m["cost"] for m in monthly_trend[-3:] if m["cost"] > 0]
+        monthly_projection = round(sum(recent_costs) / len(recent_costs), 2) if recent_costs else 0
+
+        return {
+            "total_cloud_cost": round(total_cloud_cost, 2),
+            "total_jobs_cloud": total_jobs_cloud,
+            "cost_per_gb_saved": round(cost_per_gb, 4),
+            "cloud_vs_local": {
+                "cloud_cost": round(total_cloud_cost, 2),
+                "local_estimated_cost": round(local_estimated_cost, 2),
+                "savings": round(local_estimated_cost - total_cloud_cost, 2),
+            },
+            "monthly_trend": monthly_trend,
+            "monthly_projection": monthly_projection,
+        }
+
+    async def get_worker_heatmap(self, days=30):
+        """Worker performance heatmap by hour of day."""
+        from datetime import datetime, timedelta
+
+        cutoff = datetime.utcnow() - timedelta(days=days)
+
+        # Get all workers
+        workers_result = await self.session.execute(
+            select(WorkerServer.id, WorkerServer.name)
+        )
+        workers = [{"id": w[0], "name": w[1]} for w in workers_result.all()]
+
+        entries = []
+        for worker in workers:
+            for hour in range(24):
+                hour_result = await self.session.execute(
+                    select(
+                        func.count(),
+                        func.avg(JobLog.avg_fps),
+                        func.sum(JobLog.duration_seconds),
+                    ).where(
+                        JobLog.worker_server_id == worker["id"],
+                        JobLog.created_at >= cutoff,
+                        func.strftime("%H", JobLog.created_at) == f"{hour:02d}",
+                    )
+                )
+                row = hour_result.first()
+                job_count = row[0] or 0
+                avg_fps = row[1] or 0
+                total_time = row[2] or 0
+                utilization = min(1.0, total_time / (days * 3600)) if days > 0 else 0
+
+                entries.append({
+                    "worker_id": worker["id"],
+                    "worker_name": worker["name"],
+                    "hour": hour,
+                    "avg_fps": round(avg_fps, 1),
+                    "job_count": job_count,
+                    "utilization": round(utilization, 3),
+                })
+
+        return {"entries": entries, "workers": workers}
+
+    async def get_job_timeline(self, days=7):
+        """Job timeline for Gantt view."""
+        from datetime import datetime, timedelta
+
+        cutoff = datetime.utcnow() - timedelta(days=days)
+
+        result = await self.session.execute(
+            select(
+                TranscodeJob.id,
+                TranscodeJob.status,
+                TranscodeJob.started_at,
+                TranscodeJob.completed_at,
+                TranscodeJob.worker_server_id,
+                MediaItem.title,
+                WorkerServer.name,
+                JobLog.source_codec,
+                JobLog.target_codec,
+                JobLog.duration_seconds,
+            )
+            .outerjoin(MediaItem, TranscodeJob.media_item_id == MediaItem.id)
+            .outerjoin(WorkerServer, TranscodeJob.worker_server_id == WorkerServer.id)
+            .outerjoin(JobLog, TranscodeJob.id == JobLog.job_id)
+            .where(TranscodeJob.created_at >= cutoff)
+            .order_by(TranscodeJob.started_at.desc().nullslast())
+            .limit(200)
+        )
+        rows = result.all()
+
+        jobs = []
+        for r in rows:
+            jobs.append({
+                "job_id": r[0],
+                "status": r[1],
+                "started_at": r[2].isoformat() if r[2] else None,
+                "completed_at": r[3].isoformat() if r[3] else None,
+                "worker_id": r[4],
+                "title": r[5] or f"Job #{r[0]}",
+                "worker_name": r[6],
+                "source_codec": r[7],
+                "target_codec": r[8],
+                "duration_seconds": r[9],
+            })
+
+        workers_result = await self.session.execute(
+            select(WorkerServer.id, WorkerServer.name)
+        )
+        workers = [{"id": w[0], "name": w[1]} for w in workers_result.all()]
+
+        return {"jobs": jobs, "workers": workers}
+
+    async def get_codec_strategy(self):
+        """Codec strategy advisor based on job history."""
+        from app.models.plex_library import PlexLibrary
+
+        libraries_result = await self.session.execute(
+            select(PlexLibrary).order_by(PlexLibrary.title)
+        )
+        libraries = libraries_result.scalars().all()
+
+        advice = []
+        for lib in libraries:
+            # Get dominant codec
+            codec_result = await self.session.execute(
+                select(MediaItem.video_codec, func.count())
+                .where(MediaItem.plex_library_id == lib.id, MediaItem.video_codec.isnot(None))
+                .group_by(MediaItem.video_codec)
+                .order_by(func.count().desc())
+                .limit(1)
+            )
+            dominant_row = codec_result.first()
+            if not dominant_row:
+                continue
+            dominant_codec = dominant_row[0]
+
+            # Check job history for this library
+            savings_result = await self.session.execute(
+                select(
+                    JobLog.target_codec,
+                    func.count(),
+                    func.avg(JobLog.size_reduction),
+                    func.sum(JobLog.source_size),
+                    func.sum(JobLog.target_size),
+                )
+                .join(TranscodeJob, JobLog.job_id == TranscodeJob.id)
+                .join(MediaItem, TranscodeJob.media_item_id == MediaItem.id)
+                .where(
+                    MediaItem.plex_library_id == lib.id,
+                    JobLog.status == "completed",
+                    JobLog.target_codec.isnot(None),
+                )
+                .group_by(JobLog.target_codec)
+            )
+            codec_savings = savings_result.all()
+
+            best_target = "hevc"
+            best_savings = 0
+            total_projected = 0
+
+            for target_codec, count, avg_reduction, total_src, total_tgt in codec_savings:
+                savings_pct = ((total_src or 0) - (total_tgt or 0)) / (total_src or 1) * 100
+                if savings_pct > best_savings:
+                    best_savings = savings_pct
+                    best_target = target_codec
+
+            # Project total savings if all non-modern items were transcoded
+            non_modern_result = await self.session.execute(
+                select(func.sum(MediaItem.file_size))
+                .where(
+                    MediaItem.plex_library_id == lib.id,
+                    ~MediaItem.video_codec.in_(["hevc", "h265", "av1"]),
+                )
+            )
+            non_modern_size = non_modern_result.scalar() or 0
+            total_projected = int(non_modern_size * (best_savings / 100)) if best_savings > 0 else int(non_modern_size * 0.4)
+
+            rationale = f"Based on {sum(r[1] for r in codec_savings)} completed jobs, {best_target.upper()} achieves {best_savings:.0f}% savings" if codec_savings else f"Recommend HEVC as default target (estimated 40% savings)"
+
+            advice.append({
+                "library_id": lib.id,
+                "library_title": lib.title,
+                "current_dominant_codec": dominant_codec,
+                "recommended_target": best_target,
+                "avg_savings_pct": round(best_savings, 1),
+                "total_projected_savings": total_projected,
+                "rationale": rationale,
+            })
+
+        # Per-resolution recommendations
+        res_recs = []
+        for res in ["4K", "1080p", "720p", "480p"]:
+            res_result = await self.session.execute(
+                select(
+                    JobLog.target_codec,
+                    func.avg(JobLog.size_reduction),
+                    func.count(),
+                )
+                .where(
+                    JobLog.status == "completed",
+                    JobLog.source_resolution == res,
+                    JobLog.target_codec.isnot(None),
+                )
+                .group_by(JobLog.target_codec)
+                .order_by(func.avg(JobLog.size_reduction).desc())
+                .limit(1)
+            )
+            best = res_result.first()
+            if best:
+                res_recs.append({
+                    "resolution": res,
+                    "best_codec": best[0],
+                    "avg_savings": round((best[1] or 0) * 100, 1),
+                    "sample_size": best[2],
+                })
+
+        return {"advice": advice, "resolution_recommendations": res_recs}
+
+    async def get_storage_projection(self):
+        """Enhanced storage projection with confidence bands."""
+        from datetime import datetime, timedelta
+
+        # Current total size
+        size_result = await self.session.execute(select(func.sum(MediaItem.file_size)))
+        current_total = size_result.scalar() or 0
+
+        # Total potential savings from recommendations
+        from app.models.recommendation import Recommendation
+        savings_result = await self.session.execute(
+            select(func.sum(Recommendation.estimated_savings))
+            .where(
+                Recommendation.is_dismissed == False,
+                Recommendation.is_actioned == False,
+            )
+        )
+        potential_savings = savings_result.scalar() or 0
+
+        # Monthly savings rate (from last 3 months of completed jobs)
+        three_months_ago = datetime.utcnow() - timedelta(days=90)
+        monthly_result = await self.session.execute(
+            select(func.sum(JobLog.source_size - JobLog.target_size))
+            .where(
+                JobLog.status == "completed",
+                JobLog.target_size.isnot(None),
+                JobLog.created_at >= three_months_ago,
+            )
+        )
+        total_saved_3m = monthly_result.scalar() or 0
+        monthly_pace = int(total_saved_3m / 3)
+
+        # Confidence bands for 12 months
+        confidence_bands = []
+        for i in range(1, 13):
+            month_date = datetime.utcnow() + timedelta(days=i * 30)
+            mid = monthly_pace * i
+            low = int(mid * 0.6)
+            high = int(mid * 1.5)
+            confidence_bands.append({
+                "month": month_date.strftime("%Y-%m"),
+                "low": low,
+                "mid": mid,
+                "high": high,
+            })
+
+        return {
+            "current_total_size": current_total,
+            "if_all_optimized": current_total - potential_savings,
+            "potential_savings": potential_savings,
+            "current_pace_monthly": monthly_pace,
+            "months_to_storage_limit": None,
+            "confidence_bands": confidence_bands,
+        }

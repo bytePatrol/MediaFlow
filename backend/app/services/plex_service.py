@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 import httpx
@@ -149,6 +150,15 @@ class PlexService:
         return self._parse_plex_metadata(metadata_list[0], url)
 
     def _parse_plex_metadata(self, meta: dict, base_url: str) -> Dict[str, Any]:
+        # Parse lastViewedAt — Plex returns it as a Unix timestamp
+        last_viewed_at = None
+        raw_last_viewed = meta.get("lastViewedAt")
+        if raw_last_viewed is not None:
+            try:
+                last_viewed_at = datetime.utcfromtimestamp(int(raw_last_viewed))
+            except (ValueError, TypeError, OSError):
+                pass
+
         item = {
             "plex_rating_key": str(meta.get("ratingKey", "")),
             "title": meta.get("title", "Unknown"),
@@ -156,6 +166,7 @@ class PlexService:
             "duration_ms": meta.get("duration"),
             "thumb_url": f"{base_url.rstrip('/')}{meta['thumb']}" if meta.get("thumb") else None,
             "play_count": meta.get("viewCount", 0),
+            "last_viewed_at": last_viewed_at,
             "genres": [g.get("tag") for g in meta.get("Genre", [])],
             "directors": [d.get("tag") for d in meta.get("Director", [])],
         }
@@ -354,6 +365,19 @@ class PlexService:
         await self.session.commit()
 
         duration = time.time() - start_time
+
+        try:
+            import asyncio
+            from app.services.automation_engine import AutomationEngine
+            asyncio.create_task(AutomationEngine.fire_event("library_sync", {
+                "server_id": server.id,
+                "items_synced": total_items,
+                "libraries_synced": total_libs,
+                "duration_seconds": round(duration, 2),
+            }))
+        except Exception:
+            pass
+
         return {
             "status": "completed",
             "items_synced": total_items,

@@ -6,6 +6,10 @@ struct ProcessingQueueView: View {
     @State private var showClearCacheConfirm = false
     @State private var showPauseConfirm = false
     @State private var cloudDeployPanel = CloudDeployPanel()
+    @State private var queueStrategy: String = "default"
+    @State private var isLoadingStrategy = false
+    @State private var draggedJobId: Int?
+    @State private var dropTargetJobId: Int?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,6 +64,29 @@ struct ProcessingQueueView: View {
                 }
 
                 Spacer()
+
+                // Queue strategy picker
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 10))
+                        .foregroundColor(.mfTextMuted)
+                    Picker("", selection: $queueStrategy) {
+                        Text("First In, First Out").tag("default")
+                        Text("Biggest Savings First").tag("biggest_savings")
+                        Text("Fastest Jobs First").tag("fastest_first")
+                        Text("Most Watched First").tag("most_watched")
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                    .onChange(of: queueStrategy) { _, newStrategy in
+                        guard !isLoadingStrategy else { return }
+                        Task {
+                            let service = BackendService()
+                            let _ = try? await service.setQueueStrategy(newStrategy)
+                        }
+                    }
+                }
+                .opacity(isLoadingStrategy ? 0.5 : 1.0)
 
                 HStack(spacing: 8) {
                     Button {
@@ -208,7 +235,8 @@ struct ProcessingQueueView: View {
                 // Job Cards
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        ForEach(viewModel.jobs) { job in
+                        // Non-queued jobs (active, completed, failed, etc.)
+                        ForEach(nonQueuedJobs) { job in
                             TranscodeJobCardView(
                                 job: job,
                                 logMessages: viewModel.jobLogMessages[job.id] ?? [],
@@ -219,6 +247,80 @@ struct ProcessingQueueView: View {
                                     Task { await viewModel.cancelJob(job.id) }
                                 }
                             )
+                        }
+
+                        // Queued jobs section (drag-and-drop reorderable)
+                        if !viewModel.queuedJobs.isEmpty {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.up.arrow.down")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(.mfTextMuted)
+                                Text("QUEUED — DRAG TO REORDER")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.mfTextMuted)
+                                    .tracking(1)
+                                Rectangle()
+                                    .fill(Color.mfGlassBorder)
+                                    .frame(height: 1)
+                            }
+                            .padding(.top, 8)
+
+                            ForEach(Array(viewModel.queuedJobs.enumerated()), id: \.element.id) { index, job in
+                                HStack(spacing: 0) {
+                                    // Drag handle + priority badge
+                                    VStack(spacing: 4) {
+                                        Image(systemName: "line.3.horizontal")
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundColor(.mfTextMuted)
+                                        Text("#\(index + 1)")
+                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                            .foregroundColor(.mfPrimary)
+                                    }
+                                    .frame(width: 36)
+                                    .padding(.vertical, 12)
+                                    .contentShape(Rectangle())
+
+                                    TranscodeJobCardView(
+                                        job: job,
+                                        logMessages: viewModel.jobLogMessages[job.id] ?? [],
+                                        transferProgress: viewModel.jobTransferProgress[job.id],
+                                        preuploadProgress: viewModel.jobPreuploadProgress[job.id],
+                                        phaseLabel: viewModel.jobPhaseLabel[job.id],
+                                        onCancel: {
+                                            Task { await viewModel.cancelJob(job.id) }
+                                        }
+                                    )
+                                }
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(dropTargetJobId == job.id ? Color.mfPrimary : Color.clear, lineWidth: 2)
+                                )
+                                .draggable(String(job.id)) {
+                                    // Drag preview
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "line.3.horizontal")
+                                            .font(.system(size: 12))
+                                        Text(job.mediaTitle ?? "Job #\(job.id)")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .lineLimit(1)
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color.mfSurface)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+                                    .onAppear { draggedJobId = job.id }
+                                }
+                                .dropDestination(for: String.self) { droppedStrings, _ in
+                                    guard let idStr = droppedStrings.first,
+                                          let sourceId = Int(idStr) else { return false }
+                                    reorderByDrop(sourceId: sourceId, targetId: job.id)
+                                    dropTargetJobId = nil
+                                    return true
+                                } isTargeted: { isTargeted in
+                                    dropTargetJobId = isTargeted ? job.id : nil
+                                }
+                            }
                         }
 
                         if viewModel.jobs.isEmpty && !viewModel.isLoading {
@@ -238,6 +340,15 @@ struct ProcessingQueueView: View {
             // Refresh on tab switch — WebSocket keeps state alive between visits
             await viewModel.loadJobs()
             await viewModel.loadQueueStats()
+            // Load queue priority strategy
+            isLoadingStrategy = true
+            do {
+                let response = try await BackendService().getQueueStrategy()
+                queueStrategy = response.strategy
+            } catch {
+                // Default stays "default"
+            }
+            isLoadingStrategy = false
         }
         .confirmationDialog("Clear all finished jobs?", isPresented: $showClearConfirm) {
             Button("Clear All", role: .destructive) {
@@ -260,5 +371,38 @@ struct ProcessingQueueView: View {
         } message: {
             Text("All currently transcoding jobs will be paused.")
         }
+    }
+
+    // MARK: - Helpers
+
+    /// Jobs that are NOT queued (active, completed, failed, etc.) — shown above the reorderable section.
+    private var nonQueuedJobs: [TranscodeJob] {
+        viewModel.jobs.filter { $0.status != "queued" }
+    }
+
+    /// Handle a drag-and-drop reorder by moving sourceId to the position of targetId.
+    private func reorderByDrop(sourceId: Int, targetId: Int) {
+        guard sourceId != targetId else { return }
+        var queued = viewModel.queuedJobs
+        guard let sourceIndex = queued.firstIndex(where: { $0.id == sourceId }),
+              let targetIndex = queued.firstIndex(where: { $0.id == targetId }) else { return }
+
+        let movedJob = queued.remove(at: sourceIndex)
+        queued.insert(movedJob, at: targetIndex)
+
+        // Update priorities locally so the UI reflects immediately
+        let maxPriority = queued.count
+        for (i, job) in queued.enumerated() {
+            if let idx = viewModel.jobs.firstIndex(where: { $0.id == job.id }) {
+                viewModel.jobs[idx].priority = maxPriority - i
+            }
+        }
+
+        // Persist to backend
+        let orderedIds = queued.map { $0.id }
+        Task {
+            let _ = try? await BackendService().reorderQueue(jobIds: orderedIds)
+        }
+        draggedJobId = nil
     }
 }

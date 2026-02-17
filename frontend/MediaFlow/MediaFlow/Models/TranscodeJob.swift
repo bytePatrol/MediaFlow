@@ -27,6 +27,8 @@ struct TranscodeJob: Identifiable, Codable {
     var retryCount: Int = 0
     var maxRetries: Int = 3
     var validationStatus: String?
+    var vmafScore: Double?
+    var vmafModel: String?
 
     var statusDisplayName: String {
         switch status {
@@ -89,6 +91,23 @@ struct TranscodeJob: Identifiable, Codable {
     var formattedCloudCost: String {
         guard let cost = cloudCostUsd else { return "--" }
         return String(format: "$%.4f", cost)
+    }
+
+    var vmafLabel: String {
+        guard let score = vmafScore else { return "" }
+        if score >= 95 { return "Excellent" }
+        if score >= 90 { return "Great" }
+        if score >= 80 { return "Good" }
+        if score >= 70 { return "Fair" }
+        return "Poor"
+    }
+
+    var vmafColor: String {
+        guard let score = vmafScore else { return "mfTextMuted" }
+        if score >= 90 { return "mfSuccess" }
+        if score >= 80 { return "mfInfo" }
+        if score >= 70 { return "mfWarning" }
+        return "mfError"
     }
 
     private static func formatBytes(_ bytes: Int) -> String {

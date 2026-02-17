@@ -140,12 +140,38 @@ class TranscodeWorker:
         await self._try_assign_unassigned_jobs()
 
         async with async_session_factory() as session:
-            result = await session.execute(
-                select(TranscodeJob)
-                .where(TranscodeJob.status == "queued")
-                .order_by(TranscodeJob.priority.desc(), TranscodeJob.created_at.asc())
-                .limit(10)
-            )
+            strategy = await self._get_queue_strategy(session)
+            query = select(TranscodeJob).where(TranscodeJob.status == "queued")
+
+            if strategy == "biggest_savings":
+                query = query.outerjoin(MediaItem, TranscodeJob.media_item_id == MediaItem.id)
+                query = query.order_by(
+                    TranscodeJob.priority.desc(),
+                    MediaItem.file_size.desc().nullslast(),
+                    TranscodeJob.id.asc(),
+                )
+            elif strategy == "fastest_first":
+                query = query.outerjoin(MediaItem, TranscodeJob.media_item_id == MediaItem.id)
+                query = query.order_by(
+                    TranscodeJob.priority.desc(),
+                    MediaItem.file_size.asc().nullslast(),
+                    TranscodeJob.id.asc(),
+                )
+            elif strategy == "most_watched":
+                query = query.outerjoin(MediaItem, TranscodeJob.media_item_id == MediaItem.id)
+                query = query.order_by(
+                    TranscodeJob.priority.desc(),
+                    MediaItem.play_count.desc().nullslast(),
+                    TranscodeJob.id.asc(),
+                )
+            else:
+                # "default" — FIFO by priority then creation time
+                query = query.order_by(
+                    TranscodeJob.priority.desc(),
+                    TranscodeJob.created_at.asc(),
+                )
+
+            result = await session.execute(query.limit(10))
             candidates = result.scalars().all()
             if not candidates:
                 return
@@ -782,6 +808,16 @@ class TranscodeWorker:
                 "output_size": job.output_size,
                 "duration": round(duration, 1),
             })
+
+            try:
+                from app.services.automation_engine import AutomationEngine
+                asyncio.create_task(AutomationEngine.fire_event("job_complete", {
+                    "job_id": job.id,
+                    "title": (media.title if media else "") or "",
+                    "worker_id": job.worker_server_id,
+                }))
+            except Exception:
+                pass
         else:
             # Download to local filesystem
             local_output = job.output_path
@@ -1096,6 +1132,16 @@ class TranscodeWorker:
             "duration": round(duration, 1),
         })
 
+        try:
+            from app.services.automation_engine import AutomationEngine
+            asyncio.create_task(AutomationEngine.fire_event("job_complete", {
+                "job_id": job.id,
+                "title": (media.title if media else "") or "",
+                "worker_id": job.worker_server_id,
+            }))
+        except Exception:
+            pass
+
     # --- Cloud cost helper ---
 
     async def _record_cloud_job_cost(self, worker: WorkerServer, job, start_time: float,
@@ -1169,6 +1215,19 @@ class TranscodeWorker:
                     }))
 
         return callback
+
+    # --- Queue strategy helper ---
+
+    async def _get_queue_strategy(self, session) -> str:
+        """Get the configured queue priority strategy from app settings."""
+        from app.models.app_settings import AppSetting
+        result = await session.execute(
+            select(AppSetting.value).where(AppSetting.key == "queue.priority_strategy")
+        )
+        val = result.scalar()
+        if isinstance(val, str):
+            return val
+        return "default"
 
     # --- Shared helpers ---
 
@@ -1584,6 +1643,16 @@ class TranscodeWorker:
             "duration": round(duration, 1),
         })
 
+        try:
+            from app.services.automation_engine import AutomationEngine
+            asyncio.create_task(AutomationEngine.fire_event("job_complete", {
+                "job_id": job.id,
+                "title": (media.title if media else "") or "",
+                "worker_id": job.worker_server_id,
+            }))
+        except Exception:
+            pass
+
     async def _validate_output(self, job: TranscodeJob, output_path: str,
                                output_info, source_duration: Optional[float],
                                session) -> bool:
@@ -1738,6 +1807,16 @@ class TranscodeWorker:
             "job_id": job.id,
             "error": log_lines[-1] if log_lines else "Unknown error",
         })
+
+        try:
+            from app.services.automation_engine import AutomationEngine
+            asyncio.create_task(AutomationEngine.fire_event("job_failed", {
+                "job_id": job.id,
+                "title": "",
+                "error": str(log_lines[-1] if log_lines else "Unknown error"),
+            }))
+        except Exception:
+            pass
 
         # Auto-retry logic
         if (job.retry_count or 0) < (job.max_retries or 3):

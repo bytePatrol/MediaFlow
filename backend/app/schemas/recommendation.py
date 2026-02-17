@@ -20,6 +20,12 @@ class RecommendationResponse(BaseModel):
     created_at: Optional[datetime] = None
     media_title: Optional[str] = None
     media_file_size: Optional[int] = None
+    estimated_transcode_time: Optional[float] = None
+    estimated_cloud_cost: Optional[float] = None
+    roi_score: Optional[float] = None
+    dismiss_reason: Optional[str] = None
+    roi_label: Optional[str] = None  # "Excellent", "Good", "Fair"
+    cost_label: Optional[str] = None  # "$0.12 GPU" or "3h CPU"
 
     model_config = {"from_attributes": True}
 

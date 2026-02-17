@@ -38,6 +38,7 @@ class AppState: ObservableObject {
     @Published var toasts: [ToastItem] = []
     @Published var hasCompletedOnboarding: Bool = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
     @Published var droppedFilePath: String?
+    @Published var recentPaletteActions: [RecentPaletteAction] = []
 
     private var healthCheckTimer: Timer?
 
@@ -80,6 +81,16 @@ class AppState: ObservableObject {
 
     func dismissToast(_ id: UUID) {
         toasts.removeAll { $0.id == id }
+    }
+
+    func recordPaletteAction(label: String, icon: String) {
+        // Remove duplicate if same label already exists
+        recentPaletteActions.removeAll { $0.label == label }
+        recentPaletteActions.insert(RecentPaletteAction(label: label, icon: icon), at: 0)
+        // Keep max 10
+        if recentPaletteActions.count > 10 {
+            recentPaletteActions = Array(recentPaletteActions.prefix(10))
+        }
     }
 
     func completeOnboarding() {

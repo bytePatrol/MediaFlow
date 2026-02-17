@@ -13,10 +13,14 @@ from app.models.filter_preset import FilterPreset
 from app.models.server_benchmark import ServerBenchmark
 from app.models.cloud_cost import CloudCostRecord
 from app.models.notification_log import NotificationLog
+from app.models.automation_rule import AutomationRule
+from app.models.recommendation_feedback import RecommendationFeedback
+from app.models.codec_migration_snapshot import CodecMigrationSnapshot
 
 __all__ = [
     "PlexServer", "PlexLibrary", "MediaItem", "TranscodePreset",
     "TranscodeJob", "WorkerServer", "JobLog", "Recommendation",
     "CustomTag", "MediaTag", "NotificationConfig", "AppSetting", "FilterPreset",
     "ServerBenchmark", "CloudCostRecord", "NotificationLog",
+    "AutomationRule", "RecommendationFeedback", "CodecMigrationSnapshot",
 ]

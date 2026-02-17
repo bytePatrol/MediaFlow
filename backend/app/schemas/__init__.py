@@ -6,3 +6,5 @@ from app.schemas.analytics import *  # noqa
 from app.schemas.recommendation import *  # noqa
 from app.schemas.tag import *  # noqa
 from app.schemas.cloud import *  # noqa
+from app.schemas.automation import *  # noqa
+from app.schemas.library_health import *  # noqa
