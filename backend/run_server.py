@@ -33,17 +33,14 @@ def main():
     os.environ["API_HOST"] = args.host
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{os.path.join(data_dir, 'mediaflow.db')}"
 
-    # If running from a PyInstaller bundle, add the _internal/app directory
-    # to sys.path so uvicorn's string-based import can find the app package.
-    if getattr(sys, "_MEIPASS", None):
-        bundle_dir = sys._MEIPASS
-        if bundle_dir not in sys.path:
-            sys.path.insert(0, bundle_dir)
-
+    # Import the FastAPI app object directly after env vars are set.
+    # Passing the object (not a string) to uvicorn.run() lets PyInstaller
+    # trace all imports statically so every dependency gets frozen correctly.
+    from app.main import app as fastapi_app
     import uvicorn
 
     uvicorn.run(
-        "app.main:app",
+        fastapi_app,
         host=args.host,
         port=args.port,
         log_level="info",

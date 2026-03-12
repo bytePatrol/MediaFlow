@@ -39,8 +39,10 @@ BG_DIR="$BUILD_DIR/dmg_background"
 BG_FILE="$BG_DIR/background.png"
 mkdir -p "$BG_DIR"
 
-# Use the backend venv Python (has Pillow)
-"$SCRIPT_DIR/backend/venv/bin/python3" << PYEOF
+# Use the backend venv Python if available, otherwise fall back to system Python
+PYTHON3="$SCRIPT_DIR/backend/venv/bin/python3"
+[ -x "$PYTHON3" ] || PYTHON3="$(command -v python3)"
+"$PYTHON3" << PYEOF
 from PIL import Image, ImageDraw
 import os
 
@@ -110,6 +112,14 @@ ln -s /Applications "$MOUNT_POINT/Applications"
 mkdir -p "$MOUNT_POINT/.background"
 cp "$BG_FILE" "$MOUNT_POINT/.background/background.png"
 
+# Volume icon: copy the app's icns as .VolumeIcon.icns and set the custom icon bit
+ICNS_SRC="$APP_PATH/Contents/Resources/AppIcon.icns"
+if [ -f "$ICNS_SRC" ]; then
+    cp "$ICNS_SRC" "$MOUNT_POINT/.VolumeIcon.icns"
+    SetFile -a C "$MOUNT_POINT"
+    echo "  ✓ Volume icon set"
+fi
+
 # Configure Finder window via AppleScript
 # Note: Finder icon positions use top-left origin (y increases downward)
 osascript << EOF
@@ -152,6 +162,12 @@ hdiutil convert "$DMG_TEMP" -format UDZO -imagekey zlib-level=9 -o "$DMG_PATH" -
 # Clean up temp DMG and background dir
 rm -f "$DMG_TEMP"
 rm -rf "$BG_DIR"
+
+# Set the DMG file's own icon using fileicon
+if command -v fileicon &>/dev/null && [ -f "$ICNS_SRC" ]; then
+    fileicon set "$DMG_PATH" "$ICNS_SRC"
+    echo "  ✓ DMG file icon set"
+fi
 
 # ─── Done ──────────────────────────────────────────────────────────────────
 DMG_SIZE=$(du -sh "$DMG_PATH" | cut -f1)

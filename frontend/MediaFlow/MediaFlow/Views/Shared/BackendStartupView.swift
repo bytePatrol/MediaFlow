@@ -9,7 +9,10 @@ struct BackendStartupView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 24) {
-                if let logoURL = Bundle.module.url(forResource: "mediaflow-logo", withExtension: "png"),
+                let bundleName = "MediaFlow_MediaFlow"
+                if let bundleURL = Bundle.main.resourceURL?.appendingPathComponent("\(bundleName).bundle"),
+                   let resourceBundle = Bundle(url: bundleURL),
+                   let logoURL = resourceBundle.url(forResource: "mediaflow-logo", withExtension: "png"),
                    let nsImage = NSImage(contentsOf: logoURL) {
                     Image(nsImage: nsImage)
                         .resizable()
